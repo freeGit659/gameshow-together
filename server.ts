@@ -3,9 +3,10 @@ import next from "next";
 import { Server, Socket } from "socket.io";
 import { DEFAULT_PACKS } from "./src/lib/questions";
 import { GameRoom, Player, Question, CreatorPack } from "./src/types/game";
+import { getPacksFromSupabase, isSupabaseConfigured } from "./src/lib/supabase";
 
 const dev = process.env.NODE_ENV !== "production";
-const hostname = "localhost";
+const hostname = "0.0.0.0"; // Lắng nghe trên mọi interface mạng (Bắt buộc cho Render/Cloud)
 const port = parseInt(process.env.PORT || "3000", 10);
 
 const app = next({ dev, hostname, port });
@@ -15,14 +16,34 @@ const handle = app.getRequestHandler();
 const rooms: Record<string, GameRoom> = {};
 const roomTimers: Record<string, NodeJS.Timeout> = {};
 
-// Creator Packs bộ nhớ tạm (có thể bổ sung khi người dùng tạo pack mới)
+// Creator Packs bộ nhớ tạm
 const creatorPacks: Record<string, CreatorPack> = {};
-DEFAULT_PACKS.forEach(p => {
+DEFAULT_PACKS.forEach((p) => {
   creatorPacks[p.id] = p;
 });
 
+// Thử nạp packs từ Supabase khi khởi động server
+if (isSupabaseConfigured) {
+  getPacksFromSupabase().then((dbPacks) => {
+    if (dbPacks && dbPacks.length > 0) {
+      dbPacks.forEach((p: CreatorPack) => {
+        creatorPacks[p.id] = p;
+      });
+      console.log(`[Supabase] Loaded ${dbPacks.length} creator packs from database.`);
+    }
+  });
+}
+
 app.prepare().then(() => {
   const httpServer = createServer(async (req, res) => {
+    // Health check endpoint cho Render / Koyeb liveness check
+    if (req.url === "/api/health") {
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ status: "ok", uptime: process.uptime(), roomsCount: Object.keys(rooms).length }));
+      return;
+    }
+
     try {
       await handle(req, res);
     } catch (err) {
@@ -35,15 +56,16 @@ app.prepare().then(() => {
   const io = new Server(httpServer, {
     cors: {
       origin: "*",
-      methods: ["GET", "POST"]
-    }
+      methods: ["GET", "POST"],
+    },
+    transports: ["websocket", "polling"],
   });
 
   io.on("connection", (socket: Socket) => {
     let currentRoomCode: string | null = null;
 
     // 1. Tạo phòng
-    socket.on("create_room", ({ roomCode, playerName, avatar, packId = "general-knowledge-official" }: { roomCode: string, playerName: string, avatar: string, packId?: string }) => {
+    socket.on("create_room", ({ roomCode, playerName, avatar, packId = "general-knowledge-official" }: { roomCode: string; playerName: string; avatar: string; packId?: string }) => {
       const code = roomCode.toUpperCase().trim();
       const pack = creatorPacks[packId] || DEFAULT_PACKS[0];
 
@@ -58,7 +80,7 @@ app.prepare().then(() => {
         isReady: true,
         hasWebcam: false,
         isMuted: false,
-        isVideoOff: false
+        isVideoOff: false,
       };
 
       rooms[code] = {
@@ -78,10 +100,10 @@ app.prepare().then(() => {
             senderName: "Hệ thống",
             message: `Chào mừng bạn đến với Đấu trường Rung Chuông Vàng! Mã phòng: ${code}`,
             timestamp: Date.now(),
-            isSystem: true
-          }
+            isSystem: true,
+          },
         ],
-        bellRingerId: null
+        bellRingerId: null,
       };
 
       currentRoomCode = code;
@@ -91,7 +113,7 @@ app.prepare().then(() => {
     });
 
     // 2. Tham gia phòng
-    socket.on("join_room", ({ roomCode, playerName, avatar }: { roomCode: string, playerName: string, avatar: string }) => {
+    socket.on("join_room", ({ roomCode, playerName, avatar }: { roomCode: string; playerName: string; avatar: string }) => {
       const code = roomCode.toUpperCase().trim();
       const room = rooms[code];
 
@@ -105,27 +127,26 @@ app.prepare().then(() => {
         name: playerName || `Thí sinh ${Object.keys(room.players).length + 1}`,
         avatar: avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${socket.id}`,
         isHost: false,
-        status: room.stage === "lobby" ? "alive" : "spectator", // nếu game đã chạy thì vào làm khán giả
+        status: room.stage === "lobby" ? "alive" : "spectator",
         currentAnswer: null,
         score: 0,
         isReady: true,
         hasWebcam: false,
         isMuted: false,
-        isVideoOff: false
+        isVideoOff: false,
       };
 
       room.players[socket.id] = newPlayer;
       currentRoomCode = code;
       socket.join(code);
 
-      // Thêm tin nhắn hệ thống
       room.chatMessages.push({
         id: `msg-${Date.now()}`,
         senderId: "system",
         senderName: "Hệ thống",
         message: `${newPlayer.name} đã gia nhập đấu trường!`,
         timestamp: Date.now(),
-        isSystem: true
+        isSystem: true,
       });
 
       io.to(code).emit("room_updated", room);
@@ -133,8 +154,8 @@ app.prepare().then(() => {
       console.log(`[Room ${code}] Player ${newPlayer.name} joined`);
     });
 
-    // 3. Cập nhật trạng thái thiết bị (Cam / Mic / Webcam Active)
-    socket.on("update_media_state", ({ hasWebcam, isVideoOff, isMuted }: { hasWebcam?: boolean, isVideoOff?: boolean, isMuted?: boolean }) => {
+    // 3. Cập nhật thiết bị Media
+    socket.on("update_media_state", ({ hasWebcam, isVideoOff, isMuted }: { hasWebcam?: boolean; isVideoOff?: boolean; isMuted?: boolean }) => {
       if (!currentRoomCode || !rooms[currentRoomCode]) return;
       const player = rooms[currentRoomCode].players[socket.id];
       if (!player) return;
@@ -162,7 +183,7 @@ app.prepare().then(() => {
           senderName: "Hệ thống",
           message: `Host đã chọn gói đề: "${pack.title}" (${pack.questions.length} câu)`,
           timestamp: Date.now(),
-          isSystem: true
+          isSystem: true,
         });
         io.to(currentRoomCode).emit("room_updated", room);
       }
@@ -174,8 +195,7 @@ app.prepare().then(() => {
       const room = rooms[currentRoomCode];
       if (room.hostId !== socket.id) return;
 
-      // Reset toàn bộ người chơi về trạng thái alive
-      Object.values(room.players).forEach(p => {
+      Object.values(room.players).forEach((p) => {
         p.status = "alive";
         p.currentAnswer = null;
         p.score = 0;
@@ -183,13 +203,12 @@ app.prepare().then(() => {
 
       room.stage = "starting";
       room.currentQuestionIndex = 0;
-      room.timeRemaining = 3; // 3s đếm ngược chuẩn bị
+      room.timeRemaining = 3;
       room.bellRingerId = null;
 
       io.to(currentRoomCode).emit("game_starting", { countdown: 3 });
       io.to(currentRoomCode).emit("room_updated", room);
 
-      // Đếm ngược 3 giây vào câu đầu tiên
       let startingCount = 3;
       const startInterval = setInterval(() => {
         startingCount--;
@@ -202,7 +221,6 @@ app.prepare().then(() => {
       }, 1000);
     });
 
-    // Hàm kích hoạt câu hỏi
     function startQuestion(roomCode: string, questionIndex: number) {
       const room = rooms[roomCode];
       if (!room) return;
@@ -213,7 +231,6 @@ app.prepare().then(() => {
 
       const q = room.questions[questionIndex];
       if (!q) {
-        // Hết câu hỏi -> Kết thúc game
         finishGame(roomCode);
         return;
       }
@@ -222,19 +239,17 @@ app.prepare().then(() => {
       room.currentQuestionIndex = questionIndex;
       room.timeRemaining = q.timeLimit || 15;
 
-      // Xóa đáp án vòng trước của mọi người
-      Object.values(room.players).forEach(p => {
+      Object.values(room.players).forEach((p) => {
         p.currentAnswer = null;
       });
 
       io.to(roomCode).emit("question_started", {
         questionIndex,
         question: q,
-        timeLimit: room.timeRemaining
+        timeLimit: room.timeRemaining,
       });
       io.to(roomCode).emit("room_updated", room);
 
-      // Bắt đầu đếm ngược thời gian câu hỏi
       roomTimers[roomCode] = setInterval(() => {
         const curRoom = rooms[roomCode];
         if (!curRoom || curRoom.stage !== "question") {
@@ -252,7 +267,7 @@ app.prepare().then(() => {
       }, 1000);
     }
 
-    // 6. Người chơi nộp đáp án
+    // 6. Nộp đáp án
     socket.on("submit_answer", ({ answer }: { answer: string }) => {
       if (!currentRoomCode || !rooms[currentRoomCode]) return;
       const room = rooms[currentRoomCode];
@@ -262,11 +277,10 @@ app.prepare().then(() => {
       if (!player || player.status !== "alive") return;
 
       player.currentAnswer = answer;
-      // Broadcast kín: chỉ báo là thí sinh đã nộp bài (chưa lộ đáp án nào)
       io.to(currentRoomCode).emit("player_submitted", { playerId: socket.id });
     });
 
-    // 7. Hết giờ: Công bố đáp án & Loại người sai
+    // 7. Hết giờ: Công bố kết quả
     function revealAnswers(roomCode: string) {
       const room = rooms[roomCode];
       if (!room) return;
@@ -275,22 +289,22 @@ app.prepare().then(() => {
       const q = room.questions[room.currentQuestionIndex];
       const correctAns = q.correctAnswer.toUpperCase().trim();
 
-      const results: { playerId: string, isCorrect: boolean, answer: string | null }[] = [];
+      const results: { playerId: string; isCorrect: boolean; answer: string | null }[] = [];
       let aliveCount = 0;
 
-      Object.values(room.players).forEach(p => {
+      Object.values(room.players).forEach((p) => {
         if (p.status === "alive") {
-          const isCorrect = (p.currentAnswer?.toUpperCase().trim() === correctAns);
+          const isCorrect = p.currentAnswer?.toUpperCase().trim() === correctAns;
           if (isCorrect) {
             p.score += 100;
             aliveCount++;
           } else {
-            p.status = "eliminated"; // Loại ra khỏi sàn thi đấu!
+            p.status = "eliminated";
           }
           results.push({
             playerId: p.id,
             isCorrect,
-            answer: p.currentAnswer
+            answer: p.currentAnswer,
           });
         }
       });
@@ -299,47 +313,44 @@ app.prepare().then(() => {
         correctAnswer: correctAns,
         explanation: q.explanation,
         results,
-        aliveRemaining: aliveCount
+        aliveRemaining: aliveCount,
       });
       io.to(roomCode).emit("room_updated", room);
 
-      // Kiểm tra điều kiện thắng Chuông Vàng
-      const currentAlive = Object.values(room.players).filter(p => p.status === "alive");
+      const currentAlive = Object.values(room.players).filter((p) => p.status === "alive");
       const isLastQuestion = room.currentQuestionIndex >= room.questions.length - 1;
 
       if (isLastQuestion && currentAlive.length > 0) {
-        // Những người vượt qua câu cuối cùng RUNG CHUÔNG VÀNG!
         setTimeout(() => {
           room.stage = "ended";
           room.bellRingerId = currentAlive[0].id;
           io.to(roomCode).emit("bell_rung", {
             winner: currentAlive[0],
-            allWinners: currentAlive
+            allWinners: currentAlive,
           });
           io.to(roomCode).emit("room_updated", room);
         }, 4000);
       }
     }
 
-    // 8. Chuyển sang câu hỏi tiếp theo (Host kích hoạt)
+    // 8. Sang câu tiếp theo
     socket.on("next_question", () => {
       if (!currentRoomCode || !rooms[currentRoomCode]) return;
       const room = rooms[currentRoomCode];
-      if (room.hostId !== socket.id) return;
-      if (room.stage !== "revealing") return;
+      if (room.hostId !== socket.id || room.stage !== "revealing") return;
 
       const nextIdx = room.currentQuestionIndex + 1;
       startQuestion(currentRoomCode, nextIdx);
     });
 
-    // 9. CỨU TRỢ (Revival) - Hồi sinh toàn bộ người bị loại
+    // 9. Cứu trợ hồi sinh
     socket.on("trigger_revival", () => {
       if (!currentRoomCode || !rooms[currentRoomCode]) return;
       const room = rooms[currentRoomCode];
       if (room.hostId !== socket.id) return;
 
       let revivedCount = 0;
-      Object.values(room.players).forEach(p => {
+      Object.values(room.players).forEach((p) => {
         if (p.status === "eliminated") {
           p.status = "alive";
           revivedCount++;
@@ -350,16 +361,16 @@ app.prepare().then(() => {
         id: `msg-${Date.now()}`,
         senderId: "system",
         senderName: "CỨU TRỢ",
-        message: `Phép màu xuất hiện! ${revivedCount} thí sinh đã được cứu trợ và quay trở lại sàn đấu!`,
+        message: `Phép màu xuất hiện! ${revivedCount} thí sinh đã được hồi sinh quay trở lại sàn đấu!`,
         timestamp: Date.now(),
-        isSystem: true
+        isSystem: true,
       });
 
       io.to(currentRoomCode).emit("revival_success", { revivedCount });
       io.to(currentRoomCode).emit("room_updated", room);
     });
 
-    // 10. Chat phòng
+    // 10. Chat
     socket.on("send_chat", ({ message }: { message: string }) => {
       if (!currentRoomCode || !rooms[currentRoomCode]) return;
       const room = rooms[currentRoomCode];
@@ -371,41 +382,35 @@ app.prepare().then(() => {
         senderId: socket.id,
         senderName: player.name,
         message: message.trim(),
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
 
       room.chatMessages.push(chatMsg);
-      // Giới hạn 50 tin nhắn gần nhất
-      if (room.chatMessages.length > 50) {
-        room.chatMessages.shift();
-      }
-
+      if (room.chatMessages.length > 50) room.chatMessages.shift();
       io.to(currentRoomCode).emit("new_chat", chatMsg);
     });
 
-    // 11. WebRTC Signaling (P2P mesh kết nối webcam tròn)
-    socket.on("webrtc_offer", ({ to, offer }: { to: string, offer: any }) => {
+    // 11. WebRTC Signaling P2P
+    socket.on("webrtc_offer", ({ to, offer }: { to: string; offer: any }) => {
       io.to(to).emit("webrtc_offer", { from: socket.id, offer });
     });
-
-    socket.on("webrtc_answer", ({ to, answer }: { to: string, answer: any }) => {
+    socket.on("webrtc_answer", ({ to, answer }: { to: string; answer: any }) => {
       io.to(to).emit("webrtc_answer", { from: socket.id, answer });
     });
-
-    socket.on("webrtc_ice_candidate", ({ to, candidate }: { to: string, candidate: any }) => {
+    socket.on("webrtc_ice_candidate", ({ to, candidate }: { to: string; candidate: any }) => {
       io.to(to).emit("webrtc_ice_candidate", { from: socket.id, candidate });
     });
 
-    // 12. Tạo bộ câu hỏi mới (Creator Workshop)
+    // 12. Tạo Pack
     socket.on("create_pack", (newPack: CreatorPack) => {
       if (newPack && newPack.id) {
         creatorPacks[newPack.id] = newPack;
         socket.emit("pack_created", newPack);
-        console.log(`[Creator] New Pack Created: ${newPack.title} by ${newPack.author}`);
+        console.log(`[Creator] New Pack: ${newPack.title}`);
       }
     });
 
-    // 13. Lấy danh sách Creator Packs
+    // 13. Lấy Packs
     socket.on("get_packs", () => {
       socket.emit("packs_list", Object.values(creatorPacks));
     });
@@ -419,13 +424,11 @@ app.prepare().then(() => {
       if (leavingPlayer) {
         delete room.players[socket.id];
 
-        // Nếu phòng rỗng -> xóa phòng & timer
         if (Object.keys(room.players).length === 0) {
           if (roomTimers[currentRoomCode]) clearInterval(roomTimers[currentRoomCode]);
           delete rooms[currentRoomCode];
           console.log(`[Room ${currentRoomCode}] Empty and closed.`);
         } else {
-          // Nếu Host rời đi -> chuyển quyền Host cho người khác
           if (room.hostId === socket.id) {
             const remainingIds = Object.keys(room.players);
             room.hostId = remainingIds[0];
@@ -438,7 +441,7 @@ app.prepare().then(() => {
             senderName: "Hệ thống",
             message: `${leavingPlayer.name} đã rời sàn đấu.`,
             timestamp: Date.now(),
-            isSystem: true
+            isSystem: true,
           });
 
           io.to(currentRoomCode).emit("room_updated", room);
@@ -452,16 +455,14 @@ app.prepare().then(() => {
     const room = rooms[roomCode];
     if (!room) return;
     room.stage = "ended";
-    const winners = Object.values(room.players).filter(p => p.status === "alive");
-    if (winners.length > 0) {
-      room.bellRingerId = winners[0].id;
-    }
+    const winners = Object.values(room.players).filter((p) => p.status === "alive");
+    if (winners.length > 0) room.bellRingerId = winners[0].id;
     io.to(roomCode).emit("game_ended", { winners });
     io.to(roomCode).emit("room_updated", room);
   }
 
-  httpServer.listen(port, () => {
-    console.log(`> GameShow Together ready on http://${hostname}:${port}`);
-    console.log(`> Real-time Socket.io and WebRTC signaling ready`);
+  httpServer.listen(port, hostname, () => {
+    console.log(`> GameShow Together running on http://${hostname}:${port}`);
+    console.log(`> Cloud deployment ready (Render / Koyeb / Docker)`);
   });
 });
