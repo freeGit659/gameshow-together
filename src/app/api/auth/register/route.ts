@@ -43,8 +43,8 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Nickname này đã có người sử dụng. Vui lòng chọn tên khác!" }, { status: 409 });
       }
 
-      // Tạo tài khoản mới
-      const { data: newUser, error: insertError } = await supabase
+      // Tạo tài khoản mới (Thử với đầy đủ trường, nếu thiếu cột auth_type thì tự động retry)
+      let { data: newUser, error: insertError } = await supabase
         .from("profiles")
         .insert({
           username: cleanNick,
@@ -53,15 +53,42 @@ export async function POST(req: Request) {
           role: "player",
           total_score: 0,
           bells_won: 0,
-          auth_type: "simple",
           password_pin: pinHash,
+          auth_type: "simple",
         })
         .select()
         .single();
 
+      // Nếu lỗi do database chưa có cột auth_type (bản schema cũ)
+      if (insertError && insertError.message.includes("auth_type")) {
+        console.warn("Retrying insert without auth_type column...");
+        const retryResult = await supabase
+          .from("profiles")
+          .insert({
+            username: cleanNick,
+            full_name: cleanNick,
+            avatar_url: avatar,
+            role: "player",
+            total_score: 0,
+            bells_won: 0,
+            password_pin: pinHash,
+          })
+          .select()
+          .single();
+
+        newUser = retryResult.data;
+        insertError = retryResult.error;
+      }
+
       if (insertError) {
         console.error("Supabase insert error:", insertError);
-        return NextResponse.json({ error: "Không thể tạo tài khoản trên database: " + insertError.message }, { status: 500 });
+        // Hướng dẫn nếu thiếu cả password_pin
+        if (insertError.message.includes("password_pin") || insertError.message.includes("column")) {
+          return NextResponse.json({ 
+            error: "Database Supabase của bạn chưa có cột 'password_pin' và 'auth_type'. Vui lòng vào SQL Editor trên Supabase và chạy lệnh: ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS password_pin TEXT; ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS auth_type TEXT DEFAULT 'simple';" 
+          }, { status: 500 });
+        }
+        return NextResponse.json({ error: "Lỗi tạo tài khoản trên database: " + insertError.message }, { status: 500 });
       }
 
       return NextResponse.json({
