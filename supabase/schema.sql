@@ -93,6 +93,8 @@ ALTER TABLE public.game_sessions ENABLE ROW LEVEL SECURITY;
 
 -- Mọi người đều có thể đọc profiles, packs và questions công khai
 CREATE POLICY "Public read profiles" ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "Public insert profiles" ON public.profiles FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public update profiles" ON public.profiles FOR UPDATE USING (true);
 CREATE POLICY "Public read packs" ON public.creator_packs FOR SELECT USING (status = 'published');
 CREATE POLICY "Public read questions" ON public.questions FOR SELECT USING (true);
 CREATE POLICY "Public read rooms" ON public.rooms FOR SELECT USING (true);

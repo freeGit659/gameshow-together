@@ -151,20 +151,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // 3. Đăng nhập với Google OAuth
   const loginWithGoogle = async () => {
     if (isSupabaseConfigured && supabase) {
-      await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
-        },
-      });
+      try {
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: {
+            redirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
+          },
+        });
+
+        if (error) {
+          console.warn("Supabase Google Auth error:", error.message);
+          // Gợi ý khi chưa cấu hình Google Provider trên Supabase
+          const confirmTest = confirm(
+            `Supabase báo: "${error.message}"\n\n(Do Google Provider chưa được bật trong Supabase Dashboard -> Authentication -> Providers -> Google).\n\nBạn có muốn dùng Tài Khoản Thử Nghiệm Google để vào game ngay không?`
+          );
+          if (confirmTest) {
+            const mockGoogleUser: UserSession = {
+              id: `google_${Date.now()}`,
+              username: "Google_Gamer",
+              avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=GoogleGamer",
+              score: 0,
+              bells: 0,
+              isGuest: false,
+              email: "gamer@gmail.com",
+            };
+            setUser(mockGoogleUser);
+            localStorage.setItem("gst_auth_session", JSON.stringify(mockGoogleUser));
+            localStorage.setItem("gst_player_name", mockGoogleUser.username);
+            closeAuthModal();
+          }
+        }
+      } catch (err: any) {
+        alert("Lỗi khi kết nối Google: " + err.message);
+      }
     } else {
       // Mockup đăng nhập Google khi chạy offline
       const mockGoogleUser: UserSession = {
         id: `google_${Date.now()}`,
         username: "Google_Gamer",
         avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=GoogleGamer",
-        score: 3500,
-        bells: 2,
+        score: 0,
+        bells: 0,
         isGuest: false,
         email: "gamer@gmail.com",
       };
