@@ -1,48 +1,57 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { SidebarNav, NavTab } from "@/components/SidebarNav";
+import { RightSidebar } from "@/components/RightSidebar";
+import { SettingsModal } from "@/components/SettingsModal";
+import { CreatorStudioModal } from "@/components/CreatorStudioModal";
 import { DEFAULT_PACKS } from "@/lib/questions";
 import { CreatorPack } from "@/types/game";
-import { CreatorStudioModal } from "@/components/CreatorStudioModal";
 import { generateRoomCode } from "@/lib/utils";
 import { 
-  Users, 
+  Search, 
   Sparkles, 
-  Video, 
-  VideoOff, 
-  PlusCircle, 
   Play, 
+  Flame, 
+  Users, 
   ArrowRight, 
-  Coins, 
+  PlusCircle, 
+  Gamepad2, 
   ShieldCheck, 
-  Gamepad2 
+  Coins, 
+  Star,
+  Check
 } from "lucide-react";
 
-export default function HomePage() {
+export default function GamingDashboard() {
   const router = useRouter();
 
-  const [playerName, setPlayerName] = useState("");
-  const [roomCodeInput, setRoomCodeInput] = useState("");
-  const [packs, setPacks] = useState<CreatorPack[]>(DEFAULT_PACKS);
-  const [selectedPackId, setSelectedPackId] = useState(DEFAULT_PACKS[0].id);
+  // Navigation & Modals
+  const [activeTab, setActiveTab] = useState<NavTab>("home");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isStudioOpen, setIsStudioOpen] = useState(false);
 
-  // Preview Webcam
-  const [isCamEnabled, setIsCamEnabled] = useState(false);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  // User Profile
+  const [playerName, setPlayerName] = useState("Aaron_J");
+  const [roomCodeInput, setRoomCodeInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterCategory, setFilterCategory] = useState<"all" | "trending" | "free" | "popular" | "creator">("all");
 
+  // Game Packs
+  const [packs, setPacks] = useState<CreatorPack[]>(DEFAULT_PACKS);
+
+  // Load user data & saved custom packs
   useEffect(() => {
-    // Đọc tên người chơi từ localStorage nếu có
     const savedName = localStorage.getItem("gst_player_name");
     if (savedName) {
       setPlayerName(savedName);
     } else {
-      setPlayerName(`Thí Sinh ${Math.floor(100 + Math.random() * 900)}`);
+      const defaultName = `Thí Sinh ${Math.floor(100 + Math.random() * 900)}`;
+      setPlayerName(defaultName);
+      localStorage.setItem("gst_player_name", defaultName);
     }
 
-    // Đọc custom packs từ localStorage nếu có
     const savedPacks = localStorage.getItem("gst_creator_packs");
     if (savedPacks) {
       try {
@@ -54,297 +63,339 @@ export default function HomePage() {
     }
   }, []);
 
-  const toggleWebcamPreview = async () => {
-    if (isCamEnabled) {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
-      setIsCamEnabled(false);
-      if (videoRef.current) videoRef.current.srcObject = null;
-    } else {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 320, height: 320, facingMode: "user" },
-          audio: false,
-        });
-        streamRef.current = stream;
-        setIsCamEnabled(true);
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      } catch (err) {
-        console.warn("Camera access denied or unavailable", err);
-        alert("Không thể truy cập camera. Vui lòng cho phép quyền truy cập camera trên trình duyệt!");
-      }
-    }
+  const handleUpdateName = (name: string) => {
+    setPlayerName(name);
+    localStorage.setItem("gst_player_name", name);
   };
 
-  const handleCreateRoom = (packIdToUse?: string) => {
-    const name = playerName.trim() || "Host Thí Sinh";
-    localStorage.setItem("gst_player_name", name);
+  const handleCreateRoom = (packId = "general-knowledge-official") => {
     const code = generateRoomCode();
-    const pack = packIdToUse || selectedPackId;
-    router.push(`/room/${code}?isHost=true&packId=${pack}&name=${encodeURIComponent(name)}`);
+    router.push(`/room/${code}?isHost=true&packId=${packId}&name=${encodeURIComponent(playerName)}`);
   };
 
-  const handleJoinRoom = (e: React.FormEvent) => {
-    e.preventDefault();
-    const code = roomCodeInput.trim().toUpperCase();
+  const handleJoinByCode = (codeToJoin?: string) => {
+    const code = (codeToJoin || roomCodeInput).trim().toUpperCase();
     if (!code) return;
-    const name = playerName.trim() || `Thí Sinh ${Math.floor(100 + Math.random() * 900)}`;
-    localStorage.setItem("gst_player_name", name);
-    router.push(`/room/${code}?name=${encodeURIComponent(name)}`);
+    router.push(`/room/${code}?name=${encodeURIComponent(playerName)}`);
   };
 
   const handleSavePack = (newPack: CreatorPack) => {
     const updated = [newPack, ...packs];
     setPacks(updated);
-    setSelectedPackId(newPack.id);
-
-    // Lưu vào LocalStorage
     const customOnly = updated.filter((p) => !p.isOfficial);
     localStorage.setItem("gst_creator_packs", JSON.stringify(customOnly));
   };
 
+  // Danh mục Gameshow thịnh hành (Trending Game Shows)
+  const trendingShows = [
+    {
+      id: "rung-chuong-vang",
+      title: "Đấu Trường Chuông Vàng",
+      genre: "Real-time Survival Quiz",
+      players: "1.2K đang chơi",
+      image: "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=400&q=80",
+      playable: true,
+      tag: "HOT",
+      rating: "4.9",
+    },
+    {
+      id: "ai-la-trieu-phu",
+      title: "Đấu Trường Triệu Phú",
+      genre: "15 Câu Hỏi Leo Thang",
+      players: "840 đang chơi",
+      image: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=400&q=80",
+      playable: true,
+      tag: "CLASSIC",
+      rating: "4.8",
+    },
+    {
+      id: "chiec-non-ky-dieu",
+      title: "Vòng Xoay Ô Chữ",
+      genre: "Đoán Chữ May Mắn",
+      players: "620 đang chơi",
+      image: "https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=400&q=80",
+      playable: false,
+      tag: "SẮP RA MẮT",
+      rating: "4.7",
+    },
+  ];
+
+  // Lọc danh sách gói theo search và category
+  const filteredPacks = packs.filter((p) => {
+    const matchSearch = p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    if (!matchSearch) return false;
+
+    if (filterCategory === "free") return p.price === 0;
+    if (filterCategory === "creator") return !p.isOfficial;
+    if (filterCategory === "popular") return p.playsCount > 500;
+    return true;
+  });
+
   return (
-    <div className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 flex flex-col gap-10">
-      {/* Hero Banner */}
-      <div className="text-center space-y-4 pt-4">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-xs font-semibold">
-          <Sparkles className="w-3.5 h-3.5" />
-          Prototype GameShow Online Thời Gian Thực
-        </div>
-        <h1 className="text-3xl sm:text-5xl font-black tracking-tight">
-          SÀN ĐẤU <span className="gold-gradient-text">RUNG CHUÔNG VÀNG</span>
-        </h1>
-        <p className="text-sm sm:text-base text-slate-400 max-w-xl mx-auto leading-relaxed">
-          Tranh tài kiến thức cùng bạn bè qua Video Webcam tròn tương tác trực tiếp. Sáng tạo kịch bản gameshow và đưa lên sàn đấu!
-        </p>
-      </div>
+    <div className="flex-1 w-full min-h-screen p-2 sm:p-4 lg:p-6 flex flex-col justify-center">
+      <div className="w-full max-w-[1700px] mx-auto flex flex-col md:flex-row gap-4 lg:gap-6 items-stretch">
+        
+        {/* 1. CỘT TRÁI: Sidebar Chức năng (Game, Purchases, Settings,...) */}
+        <SidebarNav
+          activeTab={activeTab}
+          onSelectTab={setActiveTab}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenStudio={() => setIsStudioOpen(true)}
+        />
 
-      {/* Profile & Room Entry Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Cột trái: Thiết lập cá nhân & Webcam tròn preview */}
-        <div className="lg:col-span-5 bg-slate-900/60 border border-slate-800 rounded-2xl p-6 backdrop-blur-md shadow-xl flex flex-col items-center space-y-5">
-          <h2 className="text-sm font-bold text-slate-300 uppercase tracking-wider self-start flex items-center gap-2">
-            <Users className="w-4 h-4 text-yellow-400" />
-            Hồ Sơ & Webcam Của Bạn
-          </h2>
-
-          {/* Avatar / Webcam tròn */}
-          <div className="relative group">
-            <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-yellow-500/60 bg-slate-950 shadow-2xl relative flex items-center justify-center glow-gold">
-              {isCamEnabled ? (
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover scale-x-[-1]"
-                />
-              ) : (
-                <img
-                  src={`https://api.dicebear.com/7.x/bottts/svg?seed=${playerName || "guest"}`}
-                  alt="Avatar preview"
-                  className="w-full h-full object-cover"
-                />
-              )}
+        {/* 2. CỘT GIỮA: Nội dung chính Dashboard Gaming */}
+        <main className="flex-1 flex flex-col gap-6 overflow-y-auto">
+          {/* Thanh Search Bar trên cùng (giống ảnh mẫu) */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Tìm kiếm game show, chủ đề, câu hỏi, nhà sáng tạo..."
+                className="w-full bg-[#10131d]/90 border border-white/5 rounded-2xl pl-11 pr-4 py-3 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-white/20 transition-all shadow-sm"
+              />
             </div>
 
-            {/* Nút bật/tắt camera test */}
             <button
-              onClick={toggleWebcamPreview}
-              className={`absolute bottom-0 right-0 p-2 rounded-full border shadow-lg transition-transform active:scale-95 ${
-                isCamEnabled
-                  ? "bg-emerald-500 text-slate-950 border-emerald-400"
-                  : "bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700"
-              }`}
-              title={isCamEnabled ? "Tắt Webcam" : "Bật thử nghiệm Webcam"}
+              onClick={() => handleCreateRoom()}
+              className="px-4 py-3 rounded-2xl text-xs font-bold theme-active-pill flex items-center gap-2 shrink-0 active:scale-95 transition-transform"
             >
-              {isCamEnabled ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+              <PlusCircle className="w-4 h-4" />
+              <span className="hidden sm:inline">Tạo Phòng Nhanh</span>
             </button>
           </div>
 
-          <div className="w-full space-y-1.5 text-center">
-            <span className="text-xs text-slate-400">Tên hiển thị trên sàn đấu</span>
-            <input
-              type="text"
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
-              placeholder="Nhập biệt danh của bạn..."
-              className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-4 py-2.5 text-sm text-center font-bold text-yellow-400 focus:outline-none focus:border-yellow-500 transition-colors"
-            />
-          </div>
+          {/* Featured Hero Banner lớn (Phong cách IT TAKES TWO như ảnh mẫu) */}
+          <div className="relative rounded-3xl overflow-hidden border border-white/10 bg-gradient-to-r from-slate-950 via-[#181c2e] to-slate-950 p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-6 shadow-2xl group">
+            {/* Background art glow */}
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-violet-600/20 via-transparent to-transparent pointer-events-none" />
 
-          <div className="text-[11px] text-slate-500 text-center leading-relaxed">
-            💡 Webcam tròn sẽ xuất hiện xung quanh bàn thi đấu để bạn bè thấy biểu cảm của nhau trong từng giây hồi hộp!
-          </div>
-        </div>
-
-        {/* Cột phải: Vào phòng & Tạo phòng */}
-        <div className="lg:col-span-7 space-y-6">
-          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 backdrop-blur-md shadow-xl space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Box 1: Tạo phòng làm Host */}
-              <div className="space-y-3 p-4 rounded-xl bg-slate-950/50 border border-yellow-500/20 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center gap-2 text-yellow-400 font-bold text-sm mb-1">
-                    <Gamepad2 className="w-4 h-4" />
-                    <span>Làm Host Trận Đấu</span>
-                  </div>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Khởi tạo phòng riêng, toàn quyền chọn bộ câu hỏi, điều khiển nhịp game và kích hoạt vòng cứu trợ.
-                  </p>
-                </div>
-
-                <button
-                  onClick={() => handleCreateRoom()}
-                  className="w-full py-2.5 px-4 rounded-xl text-xs font-black bg-gradient-to-r from-yellow-500 to-amber-500 hover:from-yellow-400 hover:to-amber-400 text-slate-950 shadow-lg shadow-yellow-500/20 flex items-center justify-center gap-2 transition-transform active:scale-95"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  Tạo Phòng Nhanh
-                </button>
+            <div className="relative z-10 space-y-4 max-w-md">
+              {/* Badge NEW hình ngôi sao nổi bật */}
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-400 text-[11px] font-black uppercase tracking-wider">
+                <Sparkles className="w-3.5 h-3.5" />
+                Featured Game Show
               </div>
 
-              {/* Box 2: Tham gia bằng Mã */}
-              <div className="space-y-3 p-4 rounded-xl bg-slate-950/50 border border-slate-800 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center gap-2 text-sky-400 font-bold text-sm mb-1">
-                    <Users className="w-4 h-4" />
-                    <span>Gia Nhập Sàn Đấu</span>
-                  </div>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Bạn được bạn bè gửi mã phòng? Nhập mã 6 chữ cái để ngồi vào ghế thí sinh ngay.
-                  </p>
-                </div>
+              <div>
+                <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight leading-tight">
+                  ĐẤU TRƯỜNG <span className="theme-accent-text">CHUÔNG VÀNG</span>
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-300 mt-2 leading-relaxed">
+                  Tranh tài 15 câu hỏi sinh tồn theo thời gian thực cùng bạn bè. Bật webcam tròn để cùng chia sẻ trọn vẹn từng khoảnh khắc cảm xúc!
+                </p>
+              </div>
 
-                <form onSubmit={handleJoinRoom} className="flex gap-2">
+              <div className="flex items-center gap-4 pt-1">
+                <div className="text-lg font-black text-emerald-400">
+                  Miễn Phí
+                </div>
+                <button
+                  onClick={() => handleCreateRoom("general-knowledge-official")}
+                  className="px-6 py-2.5 rounded-2xl text-xs font-bold theme-active-pill flex items-center gap-2 active:scale-95 transition-transform"
+                >
+                  <Play className="w-3.5 h-3.5 fill-white text-white" />
+                  Vào Đấu Trường Ngay
+                </button>
+              </div>
+            </div>
+
+            {/* Mascot Visual / 3D Illustration */}
+            <div className="relative z-10 w-44 h-44 sm:w-56 sm:h-56 flex items-center justify-center shrink-0">
+              <div className="w-36 h-36 sm:w-44 sm:h-44 rounded-full bg-gradient-to-tr from-yellow-500 to-amber-300 flex items-center justify-center text-7xl shadow-2xl shadow-yellow-500/20 group-hover:scale-105 transition-transform duration-300 animate-pulse">
+                🔔
+              </div>
+            </div>
+          </div>
+
+          {/* Phân mục: Trending Games 🔥 (Theo ảnh mẫu) */}
+          <div className="space-y-3.5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-extrabold text-slate-100 flex items-center gap-2">
+                <span>Trending games</span>
+                <Flame className="w-4 h-4 text-orange-500" />
+              </h3>
+
+              {/* Filter Tabs bo tròn (Nổi bật, Miễn phí, Nhiều người chơi nhất,...) */}
+              <div className="flex items-center gap-1.5 overflow-x-auto text-[11px] font-semibold text-slate-400 bg-[#10131d]/60 p-1 rounded-2xl border border-white/5">
+                {[
+                  { id: "all", label: "Tất cả" },
+                  { id: "trending", label: "🔥 Nổi bật" },
+                  { id: "free", label: "Miễn phí" },
+                  { id: "popular", label: "Nhiều người chơi" },
+                  { id: "creator", label: "Creator Workshop" },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setFilterCategory(tab.id as any)}
+                    className={`px-3 py-1 rounded-xl transition-all ${
+                      filterCategory === tab.id
+                        ? "theme-active-pill font-bold"
+                        : "hover:text-slate-200 hover:bg-white/5"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Danh sách 3 game nổi bật nằm ngang giống hệt ảnh mẫu (Halo, Humankind, Biomutant) */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {trendingShows.map((game) => (
+                <div
+                  key={game.id}
+                  onClick={() => game.playable && handleCreateRoom()}
+                  className={`rounded-2xl overflow-hidden gaming-card gaming-card-hover p-3 flex flex-col justify-between cursor-pointer group relative ${
+                    !game.playable ? "opacity-75" : ""
+                  }`}
+                >
+                  <div className="relative aspect-[16/10] rounded-xl overflow-hidden bg-slate-900 mb-3">
+                    <img
+                      src={game.image}
+                      alt={game.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md text-white">
+                      {game.tag}
+                    </div>
+                    <div className="absolute top-2 right-2 flex items-center gap-0.5 bg-black/60 backdrop-blur-md text-[10px] font-bold px-1.5 py-0.5 rounded-md text-yellow-400">
+                      <Star className="w-3 h-3 fill-yellow-400" />
+                      {game.rating}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-100 group-hover:text-violet-400 transition-colors truncate">
+                      {game.title}
+                    </h4>
+                    <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                      {game.genre}
+                    </p>
+                    <div className="text-[10px] theme-accent-text font-semibold mt-2 flex items-center gap-1">
+                      <Users className="w-3 h-3" />
+                      {game.players}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Hàng Dưới: Chia 2 cột (Accessories / Quick Join bên trái + Recent Plays bên phải như ảnh mẫu) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            {/* Box Trái (Accessories / Quick Join): Nhập mã phòng hoặc Tạo bộ đề */}
+            <div className="lg:col-span-5 rounded-3xl gaming-card p-5 flex flex-col justify-between space-y-4">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                  Trực Tiếp & Kết Nối
+                </span>
+                <h4 className="text-sm font-black text-slate-100 mt-1 flex items-center gap-1.5">
+                  <Gamepad2 className="w-4 h-4 theme-accent-text" />
+                  Gia Nhập Phòng Bằng Mã
+                </h4>
+                <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                  Nhập mã 6 chữ cái để ngồi vào bàn chơi cùng bạn bè ngay lập tức.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex gap-2">
                   <input
                     type="text"
                     maxLength={6}
                     value={roomCodeInput}
                     onChange={(e) => setRoomCodeInput(e.target.value.toUpperCase())}
-                    placeholder="MÃ PHÒNG (VD: ABCXYZ)"
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs uppercase font-mono tracking-widest text-slate-100 focus:outline-none focus:border-yellow-500"
+                    placeholder="MÃ PHÒNG (VD: BELL99)"
+                    className="flex-1 bg-black/40 border border-white/10 rounded-2xl px-3 py-2.5 text-xs uppercase font-mono tracking-widest text-slate-100 focus:outline-none focus:border-white/30 text-center font-bold"
                   />
                   <button
-                    type="submit"
-                    className="px-3.5 py-2 rounded-xl text-xs font-bold bg-sky-500 hover:bg-sky-400 text-slate-950 transition-colors flex items-center justify-center"
+                    onClick={() => handleJoinByCode()}
+                    className="px-4 py-2.5 rounded-2xl text-xs font-bold theme-active-pill active:scale-95 transition-transform"
                   >
                     <ArrowRight className="w-4 h-4" />
                   </button>
-                </form>
+                </div>
+
+                <button
+                  onClick={() => setIsStudioOpen(true)}
+                  className="w-full py-2.5 rounded-2xl text-xs font-bold bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 transition-colors flex items-center justify-center gap-2"
+                >
+                  <PlusCircle className="w-3.5 h-3.5 theme-accent-text" />
+                  Mở Creator Studio (Tạo đề)
+                </button>
+              </div>
+            </div>
+
+            {/* Box Phải (Recent plays - Theo ảnh mẫu: list Horizon, Call of Duty kèm nút Play) */}
+            <div className="lg:col-span-7 rounded-3xl gaming-card p-5 space-y-3.5">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-extrabold text-slate-100 uppercase tracking-wider">
+                  Bộ Đề Nổi Bật (Recent Game Packs)
+                </h4>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  {filteredPacks.length} gói đề
+                </span>
+              </div>
+
+              <div className="space-y-2.5">
+                {filteredPacks.slice(0, 3).map((pack) => {
+                  const isFree = pack.price === 0;
+                  return (
+                    <div
+                      key={pack.id}
+                      className="flex items-center justify-between p-3 rounded-2xl bg-[#141724]/70 border border-white/5 hover:border-white/15 transition-all group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-slate-900 border border-white/10 flex items-center justify-center text-lg shrink-0 group-hover:scale-105 transition-transform">
+                          {pack.isOfficial ? "🔔" : "💡"}
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-slate-100 group-hover:text-violet-400 transition-colors">
+                            {pack.title}
+                          </div>
+                          <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                            <span>Bởi: {pack.author}</span>
+                            <span>•</span>
+                            <span className="font-semibold text-yellow-400">
+                              {isFree ? "Miễn phí" : `${pack.price.toLocaleString()}đ`}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleCreateRoom(pack.id)}
+                        className="px-4 py-1.5 rounded-xl text-xs font-bold border border-white/10 hover:border-white/30 text-slate-200 hover:text-white transition-all group-hover:theme-active-pill"
+                      >
+                        Play
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
-        </div>
+        </main>
+
+        {/* 3. CỘT PHẢI: Profile, Bạn Bè Online, Bảng Xếp Hạng Người Chơi */}
+        <RightSidebar
+          playerName={playerName}
+          onUpdatePlayerName={handleUpdateName}
+          onQuickJoinRoom={(code) => handleJoinByCode(code)}
+        />
       </div>
 
-      {/* Creator Marketplace & Workshop Section */}
-      <div className="space-y-5">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-black text-slate-100 flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-yellow-400" />
-              Creator Workshop & Bộ Đề Cộng Đồng
-            </h2>
-            <p className="text-xs text-slate-400">
-              Các bộ gameshow do cộng đồng sáng tạo. Tác giả có thể chia sẻ miễn phí hoặc đặt phí bản quyền.
-            </p>
-          </div>
+      {/* Modals */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
 
-          <button
-            onClick={() => setIsStudioOpen(true)}
-            className="px-4 py-2 rounded-xl text-xs font-bold bg-yellow-500/15 hover:bg-yellow-500/25 text-yellow-400 border border-yellow-500/40 flex items-center gap-2 transition-colors shrink-0"
-          >
-            <PlusCircle className="w-4 h-4" />
-            Sáng Tạo Bộ Đề Của Riêng Bạn
-          </button>
-        </div>
-
-        {/* Danh sách các Packs */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {packs.map((p) => {
-            const isSelected = selectedPackId === p.id;
-            const isFree = p.price === 0;
-
-            return (
-              <div
-                key={p.id}
-                className={`bg-slate-900/60 border rounded-2xl p-5 flex flex-col justify-between backdrop-blur-sm transition-all duration-200 relative group ${
-                  isSelected
-                    ? "border-yellow-500/80 shadow-lg shadow-yellow-500/10"
-                    : "border-slate-800 hover:border-slate-700"
-                }`}
-              >
-                <div>
-                  {/* Tags & Price */}
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {p.isOfficial && (
-                        <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
-                          <ShieldCheck className="w-3 h-3" />
-                          Official
-                        </span>
-                      )}
-                      {p.tags.map((t, idx) => (
-                        <span
-                          key={idx}
-                          className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-400"
-                        >
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-
-                    <div className="flex items-center gap-1 text-xs font-bold">
-                      {isFree ? (
-                        <span className="text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/30">
-                          Miễn phí
-                        </span>
-                      ) : (
-                        <span className="text-yellow-400 flex items-center gap-1 bg-yellow-500/10 px-2 py-0.5 rounded-md border border-yellow-500/30">
-                          <Coins className="w-3 h-3" />
-                          {p.price.toLocaleString()}đ
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Title & Author */}
-                  <h3 className="font-bold text-base text-slate-100 group-hover:text-yellow-400 transition-colors mb-1">
-                    {p.title}
-                  </h3>
-                  <div className="text-xs text-slate-400 mb-3">
-                    Bởi: <span className="text-slate-300 font-medium">{p.author}</span>
-                  </div>
-
-                  <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed mb-4">
-                    {p.description}
-                  </p>
-                </div>
-
-                <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                  <span className="text-xs text-slate-500 font-mono">
-                    {p.questions.length} câu thử thách
-                  </span>
-
-                  <button
-                    onClick={() => handleCreateRoom(p.id)}
-                    className="flex items-center gap-1.5 text-xs font-bold px-3.5 py-1.5 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-slate-950 shadow-md transition-transform active:scale-95"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-slate-950" />
-                    Chơi bộ này
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Creator Studio Modal */}
       <CreatorStudioModal
         isOpen={isStudioOpen}
         onClose={() => setIsStudioOpen(false)}
