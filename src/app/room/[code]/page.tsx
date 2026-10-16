@@ -17,9 +17,8 @@ import {
   VolumeX, 
   LogOut, 
   Users, 
-  Bell, 
   Sparkles,
-  Share2
+  ArrowLeft
 } from "lucide-react";
 
 export default function RoomPage() {
@@ -49,7 +48,6 @@ export default function RoomPage() {
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const peerConnections = useRef<Record<string, RTCPeerConnection>>({});
 
-  // 1. Khởi tạo Camera & Mic của chính mình
   useEffect(() => {
     let stream: MediaStream | null = null;
     navigator.mediaDevices
@@ -73,7 +71,6 @@ export default function RoomPage() {
     };
   }, []);
 
-  // 2. Kết nối Socket.io
   useEffect(() => {
     const newSocket = io({
       transports: ["websocket", "polling"],
@@ -82,7 +79,6 @@ export default function RoomPage() {
     setSocket(newSocket);
 
     newSocket.on("connect", () => {
-      console.log("Connected to game server with ID:", newSocket.id);
       setMyPlayerId(newSocket.id || "");
 
       const avatar = `https://api.dicebear.com/7.x/bottts/svg?seed=${playerNameParam}`;
@@ -112,7 +108,7 @@ export default function RoomPage() {
       setRoom(updatedRoom);
     });
 
-    newSocket.on("question_started", ({ questionIndex, question, timeLimit }: any) => {
+    newSocket.on("question_started", () => {
       setSelectedAnswer(null);
       setCorrectAnswer(null);
       setExplanation(null);
@@ -126,7 +122,6 @@ export default function RoomPage() {
       setCorrectAnswer(correctAnswer);
       setExplanation(explanation);
 
-      // Kiểm tra xem mình đúng hay sai để phát âm thanh
       if (newSocket.id) {
         const myResult = results.find((r: any) => r.playerId === newSocket.id);
         if (myResult) {
@@ -152,7 +147,6 @@ export default function RoomPage() {
       router.push("/");
     });
 
-    // Lấy danh sách packs có sẵn
     newSocket.emit("get_packs");
     newSocket.on("packs_list", (list: CreatorPack[]) => {
       if (list && list.length > 0) {
@@ -165,7 +159,6 @@ export default function RoomPage() {
     };
   }, [roomCode, isHostParam, packIdParam, playerNameParam, router]);
 
-  // Cập nhật trạng thái webcam/mic lên server khi localStream thay đổi
   useEffect(() => {
     if (socket && localStream) {
       const isVideoOff = !localStream.getVideoTracks().some((t) => t.enabled);
@@ -178,7 +171,6 @@ export default function RoomPage() {
     }
   }, [socket, localStream]);
 
-  // Handlers
   const handleToggleMic = () => {
     if (!localStream) return;
     const audioTrack = localStream.getAudioTracks()[0];
@@ -204,29 +196,12 @@ export default function RoomPage() {
     socket?.emit("submit_answer", { answer: ans });
   };
 
-  const handleStartGame = () => {
-    socket?.emit("start_game");
-  };
-
-  const handleNextQuestion = () => {
-    socket?.emit("next_question");
-  };
-
-  const handleTriggerRevival = () => {
-    socket?.emit("trigger_revival");
-  };
-
-  const handleRestartGame = () => {
-    socket?.emit("start_game");
-  };
-
-  const handleSelectPack = (packId: string) => {
-    socket?.emit("select_pack", { packId });
-  };
-
-  const handleSendMessage = (msg: string) => {
-    socket?.emit("send_chat", { message: msg });
-  };
+  const handleStartGame = () => socket?.emit("start_game");
+  const handleNextQuestion = () => socket?.emit("next_question");
+  const handleTriggerRevival = () => socket?.emit("trigger_revival");
+  const handleRestartGame = () => socket?.emit("start_game");
+  const handleSelectPack = (packId: string) => socket?.emit("select_pack", { packId });
+  const handleSendMessage = (msg: string) => socket?.emit("send_chat", { message: msg });
 
   const handleCopyLink = () => {
     if (typeof window !== "undefined") {
@@ -243,10 +218,10 @@ export default function RoomPage() {
 
   if (!room) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-4">
-        <div className="w-16 h-16 rounded-full border-4 border-yellow-500/30 border-t-yellow-500 animate-spin" />
-        <h2 className="text-lg font-bold text-slate-200">
-          Đang kết nối vào sàn đấu {roomCode}...
+      <div className="min-h-screen bg-[#F7F4EB] flex flex-col items-center justify-center p-6 text-center space-y-4">
+        <div className="w-16 h-16 rounded-full border-4 border-black border-t-[#FDE047] animate-spin shadow-[3px_3px_0px_0px_#1C1917]" />
+        <h2 className="text-base font-black uppercase text-[#1C1917]">
+          Đang vào sàn đấu {roomCode}...
         </h2>
       </div>
     );
@@ -262,102 +237,96 @@ export default function RoomPage() {
   const bellRinger = room.bellRingerId ? room.players[room.bellRingerId] : null;
 
   return (
-    <div className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 flex flex-col gap-4">
-      {/* Top Bar: Room Code, Sound Toggle, Actions */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-2.5 backdrop-blur-md">
-        <div className="flex items-center gap-3">
+    <div className="min-h-screen bg-[#F7F4EB] text-[#1C1917] p-3 sm:p-5 flex flex-col items-center">
+      <div className="w-full max-w-4xl flex flex-col gap-4">
+        
+        {/* Top Header Bar Neo-Brutalism */}
+        <div className="bg-white border-2 border-black rounded-3xl px-4 py-2.5 shadow-[4px_4px_0px_0px_#1C1917] flex flex-wrap items-center justify-between gap-2.5">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 font-medium">Mã Phòng:</span>
-            <span className="font-mono text-base font-extrabold text-yellow-400 bg-yellow-500/10 px-2.5 py-0.5 rounded-lg border border-yellow-500/30 tracking-wider">
-              {room.code}
-            </span>
+            <button
+              onClick={() => router.push("/")}
+              className="p-1.5 rounded-xl border-2 border-black bg-[#F7F4EB] hover:bg-[#FDE047] shadow-[2px_2px_0px_0px_#000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+              title="Về trang chủ"
+            >
+              <ArrowLeft className="w-4 h-4 text-black" />
+            </button>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-black uppercase text-slate-700">MÃ:</span>
+              <span className="font-mono text-sm font-black text-black bg-[#FDE047] border-2 border-black px-2.5 py-0.5 rounded-xl shadow-[2px_2px_0px_0px_#000]">
+                {room.code}
+              </span>
+            </div>
+
+            <button
+              onClick={handleCopyLink}
+              className="flex items-center gap-1 text-xs font-black bg-white hover:bg-slate-50 text-black border-2 border-black px-2.5 py-1 rounded-xl shadow-[2px_2px_0px_0px_#000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+              title="Sao chép link mời"
+            >
+              {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">{isCopied ? "Đã chép!" : "Mời bạn"}</span>
+            </button>
           </div>
 
-          <button
-            onClick={handleCopyLink}
-            className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-yellow-400 bg-slate-800 hover:bg-slate-700/80 px-2.5 py-1 rounded-lg border border-slate-700 transition-colors"
-            title="Sao chép link mời bạn bè"
-          >
-            {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">{isCopied ? "Đã copy!" : "Mời bạn"}</span>
-          </button>
+          <div className="flex items-center gap-3 text-xs">
+            <div className="flex items-center gap-1 font-black bg-[#86EFAC] border border-black px-2 py-0.5 rounded-full shadow-[1px_1px_0px_0px_#000]">
+              <span className="w-2 h-2 rounded-full bg-black animate-pulse" />
+              <span>Trụ: {aliveCount}</span>
+            </div>
+            <div className="font-black bg-[#FDA4AF] border border-black px-2 py-0.5 rounded-full shadow-[1px_1px_0px_0px_#000]">
+              Loại: {eliminatedCount}
+            </div>
+
+            <button
+              onClick={toggleSound}
+              className="p-1.5 rounded-xl border-2 border-black bg-white hover:bg-slate-100 shadow-[2px_2px_0px_0px_#000]"
+              title={isMutedSound ? "Bật âm thanh" : "Tắt âm thanh"}
+            >
+              {isMutedSound ? <VolumeX className="w-3.5 h-3.5 text-rose-500" /> : <Volume2 className="w-3.5 h-3.5 text-black" />}
+            </button>
+          </div>
         </div>
 
-        {/* Trạng thái số người */}
-        <div className="flex items-center gap-4 text-xs">
-          <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Còn trụ: {aliveCount}</span>
+        {/* Danh Sách Thí Sinh: Webcam Avatar Tròn */}
+        <div className="bg-white border-2 border-black rounded-3xl p-3.5 shadow-[4px_4px_0px_0px_#1C1917] overflow-x-auto">
+          <div className="flex items-center justify-start sm:justify-center gap-4 sm:gap-6 min-w-max px-2">
+            {playersList.map((player) => (
+              <WebcamAvatar
+                key={player.id}
+                player={player}
+                isSelf={player.id === myPlayerId}
+                localStream={localStream}
+                remoteStream={remoteStreams[player.id]}
+                onToggleMic={handleToggleMic}
+                onToggleCam={handleToggleCam}
+                showAnswer={room.stage === "revealing"}
+              />
+            ))}
           </div>
-          <div className="text-rose-400 font-bold">
-            Đã loại: {eliminatedCount}
-          </div>
-
-          <div className="h-4 w-px bg-slate-800" />
-
-          {/* Toggle Âm thanh */}
-          <button
-            onClick={toggleSound}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-yellow-400 transition-colors"
-            title={isMutedSound ? "Bật âm thanh" : "Tắt âm thanh"}
-          >
-            {isMutedSound ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
-          </button>
-
-          {/* Rời phòng */}
-          <button
-            onClick={() => router.push("/")}
-            className="flex items-center gap-1 text-xs text-slate-400 hover:text-rose-400 transition-colors p-1"
-            title="Rời khỏi phòng"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
         </div>
-      </div>
 
-      {/* Dàn Thí Sinh: Danh sách Webcam Tròn */}
-      <div className="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-4 backdrop-blur-sm overflow-x-auto">
-        <div className="flex items-center justify-start sm:justify-center gap-4 sm:gap-6 min-w-max px-2">
-          {playersList.map((player) => (
-            <WebcamAvatar
-              key={player.id}
-              player={player}
-              isSelf={player.id === myPlayerId}
-              localStream={localStream}
-              remoteStream={remoteStreams[player.id]}
-              onToggleMic={handleToggleMic}
-              onToggleCam={handleToggleCam}
-              showAnswer={room.stage === "revealing"}
+        {/* Khu vực Thi đấu & Chat */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+          <div className="lg:col-span-8 flex flex-col justify-between space-y-4">
+            <GoldenBellStage
+              stage={room.stage}
+              currentQuestion={currentQuestion}
+              questionIndex={room.currentQuestionIndex}
+              totalQuestions={room.questions.length}
+              timeRemaining={room.timeRemaining}
+              selectedAnswer={selectedAnswer}
+              onSelectAnswer={handleSelectAnswer}
+              isAlive={isAlive}
+              correctAnswer={correctAnswer}
+              explanation={explanation}
+              bellRinger={bellRinger}
+              aliveCount={aliveCount}
+              totalPlayers={playersList.length}
+              onNextQuestion={handleNextQuestion}
+              isHost={isHost}
             />
-          ))}
-        </div>
-      </div>
 
-      {/* Khu vực Thi đấu Trung Tâm & Chat */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 items-stretch">
-        {/* Sàn Đấu Rung Chuông Vàng */}
-        <div className="lg:col-span-8 flex flex-col justify-between">
-          <GoldenBellStage
-            stage={room.stage}
-            currentQuestion={currentQuestion}
-            questionIndex={room.currentQuestionIndex}
-            totalQuestions={room.questions.length}
-            timeRemaining={room.timeRemaining}
-            selectedAnswer={selectedAnswer}
-            onSelectAnswer={handleSelectAnswer}
-            isAlive={isAlive}
-            correctAnswer={correctAnswer}
-            explanation={explanation}
-            bellRinger={bellRinger}
-            aliveCount={aliveCount}
-            totalPlayers={playersList.length}
-            onNextQuestion={handleNextQuestion}
-            isHost={isHost}
-          />
-
-          {/* Thanh điều khiển của Host */}
-          {isHost && (
-            <div className="mt-4">
+            {isHost && (
               <HostControls
                 stage={room.stage}
                 onStartGame={handleStartGame}
@@ -369,18 +338,18 @@ export default function RoomPage() {
                 onSelectPack={handleSelectPack}
                 eliminatedCount={eliminatedCount}
               />
-            </div>
-          )}
+            )}
+          </div>
+
+          <div className="lg:col-span-4 min-h-[300px]">
+            <ChatBox
+              messages={room.chatMessages}
+              onSendMessage={handleSendMessage}
+              myPlayerId={myPlayerId}
+            />
+          </div>
         </div>
 
-        {/* Khung Chat Trực Tiếp */}
-        <div className="lg:col-span-4 min-h-[300px]">
-          <ChatBox
-            messages={room.chatMessages}
-            onSendMessage={handleSendMessage}
-            myPlayerId={myPlayerId}
-          />
-        </div>
       </div>
     </div>
   );

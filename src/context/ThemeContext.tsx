@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 
-export type ThemeColor = "purple" | "gold" | "blue" | "emerald" | "rose" | "orange";
+export type ThemeColor = "yellow" | "pink" | "mint" | "sky" | "purple" | "orange";
 
 interface ThemeContextType {
   theme: ThemeColor;
@@ -11,36 +11,36 @@ interface ThemeContextType {
 }
 
 const THEMES_LIST: { id: ThemeColor; name: string; hex: string; bgClass: string; borderClass: string }[] = [
-  { id: "purple", name: "Tím Neon (Chuẩn)", hex: "#8B5CF6", bgClass: "bg-violet-500", borderClass: "border-violet-500" },
-  { id: "gold", name: "Vàng Hoàng Kim", hex: "#EAB308", bgClass: "bg-yellow-500", borderClass: "border-yellow-500" },
-  { id: "blue", name: "Xanh Cyberpunk", hex: "#3B82F6", bgClass: "bg-blue-500", borderClass: "border-blue-500" },
-  { id: "emerald", name: "Xanh Ngọc Lục", hex: "#10B981", bgClass: "bg-emerald-500", borderClass: "border-emerald-500" },
-  { id: "rose", name: "Hồng Neon", hex: "#F43F5E", bgClass: "bg-rose-500", borderClass: "border-rose-500" },
-  { id: "orange", name: "Cam Sunset", hex: "#F97316", bgClass: "bg-orange-500", borderClass: "border-orange-500" },
+  { id: "yellow", name: "Vàng Bơ (Chuẩn)", hex: "#FDE047", bgClass: "bg-yellow-300", borderClass: "border-yellow-400" },
+  { id: "pink", name: "Hồng Kẹo Ngọt", hex: "#F472B6", bgClass: "bg-pink-400", borderClass: "border-pink-500" },
+  { id: "mint", name: "Xanh Bạc Hà", hex: "#86EFAC", bgClass: "bg-emerald-300", borderClass: "border-emerald-400" },
+  { id: "sky", name: "Xanh Da Trời", hex: "#93C5FD", bgClass: "bg-sky-300", borderClass: "border-sky-400" },
+  { id: "purple", name: "Tím Hoa Cà", hex: "#C084FC", bgClass: "bg-purple-300", borderClass: "border-purple-400" },
+  { id: "orange", name: "Cam Đào Retro", hex: "#FB923C", bgClass: "bg-orange-300", borderClass: "border-orange-400" },
 ];
 
 const ThemeContext = createContext<ThemeContextType>({
-  theme: "purple",
+  theme: "yellow",
   setTheme: () => {},
   themesList: THEMES_LIST,
 });
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [theme, setThemeState] = useState<ThemeColor>("purple");
+  const [theme, setThemeState] = useState<ThemeColor>("yellow");
 
   useEffect(() => {
-    const saved = localStorage.getItem("gst_theme") as ThemeColor;
+    const saved = localStorage.getItem("gst_theme_pastel") as ThemeColor;
     if (saved && THEMES_LIST.some((t) => t.id === saved)) {
       setThemeState(saved);
       document.documentElement.setAttribute("data-theme", saved);
     } else {
-      document.documentElement.setAttribute("data-theme", "purple");
+      document.documentElement.setAttribute("data-theme", "yellow");
     }
   }, []);
 
   const setTheme = (newTheme: ThemeColor) => {
     setThemeState(newTheme);
-    localStorage.setItem("gst_theme", newTheme);
+    localStorage.setItem("gst_theme_pastel", newTheme);
     document.documentElement.setAttribute("data-theme", newTheme);
   };
 
