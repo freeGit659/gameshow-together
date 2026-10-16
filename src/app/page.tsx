@@ -9,19 +9,9 @@ import { CreatorPack } from "@/types/game";
 
 export default function AdaptiveHomePage() {
   const { isMobile, isInitialized } = useDevice();
-
-  const [playerName, setPlayerName] = useState("Pablo");
   const [packs, setPacks] = useState<CreatorPack[]>(DEFAULT_PACKS);
 
   useEffect(() => {
-    const savedName = localStorage.getItem("gst_player_name");
-    if (savedName) {
-      setPlayerName(savedName);
-    } else {
-      setPlayerName("Pablo");
-      localStorage.setItem("gst_player_name", "Pablo");
-    }
-
     const savedPacks = localStorage.getItem("gst_creator_packs");
     if (savedPacks) {
       try {
@@ -32,11 +22,6 @@ export default function AdaptiveHomePage() {
     }
   }, []);
 
-  const handleUpdateName = (name: string) => {
-    setPlayerName(name);
-    localStorage.setItem("gst_player_name", name);
-  };
-
   const handleSavePack = (newPack: CreatorPack) => {
     const updated = [newPack, ...packs];
     setPacks(updated);
@@ -44,7 +29,6 @@ export default function AdaptiveHomePage() {
     localStorage.setItem("gst_creator_packs", JSON.stringify(customOnly));
   };
 
-  // Tránh flash layout trước khi detect xong
   if (!isInitialized) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -53,12 +37,9 @@ export default function AdaptiveHomePage() {
     );
   }
 
-  // Tự động chọn giao diện tối ưu: Mobile UI trên điện thoại, Desktop Gaming Dashboard trên máy tính!
   if (isMobile) {
     return (
       <MobileHomeView
-        playerName={playerName}
-        onUpdatePlayerName={handleUpdateName}
         packs={packs}
         onSavePack={handleSavePack}
       />
@@ -67,8 +48,6 @@ export default function AdaptiveHomePage() {
 
   return (
     <DesktopHomeView
-      playerName={playerName}
-      onUpdatePlayerName={handleUpdateName}
       packs={packs}
       onSavePack={handleSavePack}
     />

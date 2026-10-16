@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   coins_balance NUMERIC DEFAULT 0,
   total_score INTEGER DEFAULT 0,
   bells_won INTEGER DEFAULT 0, -- Số lần rung chuông vàng thành công
+  password_pin TEXT, -- Hash SHA-256 của mật khẩu 6 chữ số
+  auth_type TEXT DEFAULT 'simple' CHECK (auth_type IN ('simple', 'google', 'guest')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

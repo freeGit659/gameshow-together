@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ThemeModeProvider } from "@/context/ThemeModeContext";
+import { AuthProvider } from "@/context/AuthContext";
+import { AuthModal } from "@/components/AuthModal";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -26,7 +28,10 @@ export default function RootLayout({
       </head>
       <body className="antialiased min-h-screen">
         <ThemeModeProvider>
-          {children}
+          <AuthProvider>
+            {children}
+            <AuthModal />
+          </AuthProvider>
         </ThemeModeProvider>
       </body>
     </html>

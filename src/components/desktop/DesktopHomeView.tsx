@@ -8,6 +8,7 @@ import { CreatorStudioModal } from "@/components/CreatorStudioModal";
 import { CreatorPack } from "@/types/game";
 import { generateRoomCode } from "@/lib/utils";
 import { useThemeMode } from "@/context/ThemeModeContext";
+import { useAuth } from "@/context/AuthContext";
 import { ThemeModeToggle } from "@/components/ThemeModeToggle";
 import { 
   Search, 
@@ -22,20 +23,17 @@ import {
 } from "lucide-react";
 
 interface DesktopHomeViewProps {
-  playerName: string;
-  onUpdatePlayerName: (name: string) => void;
   packs: CreatorPack[];
   onSavePack: (pack: CreatorPack) => void;
 }
 
 export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
-  playerName,
-  onUpdatePlayerName,
   packs,
   onSavePack,
 }) => {
   const router = useRouter();
   const { mode } = useThemeMode();
+  const { user, ensureAuthenticated } = useAuth();
 
   const [activeTab, setActiveTab] = useState<NavTab>("home");
   const [isStudioOpen, setIsStudioOpen] = useState(false);
@@ -44,14 +42,20 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
   const [filterCategory, setFilterCategory] = useState<"all" | "trending" | "free" | "popular">("all");
 
   const handleCreateRoom = (packId = "general-knowledge-official") => {
-    const code = generateRoomCode();
-    router.push(`/room/${code}?isHost=true&packId=${packId}&name=${encodeURIComponent(playerName)}`);
+    ensureAuthenticated(() => {
+      const code = generateRoomCode();
+      const name = user?.username || "Thí sinh";
+      router.push(`/room/${code}?isHost=true&packId=${packId}&name=${encodeURIComponent(name)}`);
+    });
   };
 
   const handleJoinByCode = (codeToJoin?: string) => {
-    const code = (codeToJoin || roomCodeInput).trim().toUpperCase();
-    if (!code) return;
-    router.push(`/room/${code}?name=${encodeURIComponent(playerName)}`);
+    ensureAuthenticated(() => {
+      const code = (codeToJoin || roomCodeInput).trim().toUpperCase();
+      if (!code) return;
+      const name = user?.username || "Thí sinh";
+      router.push(`/room/${code}?name=${encodeURIComponent(name)}`);
+    });
   };
 
   const trendingShows = [
@@ -101,12 +105,12 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
     <div className="w-full min-h-screen p-4 lg:p-6 flex flex-col justify-center">
       <div className="w-full max-w-[1700px] mx-auto flex flex-row gap-6 items-stretch">
         
-        {/* 1. CỘT TRÁI: Sidebar Chức năng (Game, Purchases,...) */}
+        {/* 1. CỘT TRÁI: Sidebar Chức năng */}
         <SidebarNav
           activeTab={activeTab}
           onSelectTab={setActiveTab}
           onOpenSettings={() => {}}
-          onOpenStudio={() => setIsStudioOpen(true)}
+          onOpenStudio={() => ensureAuthenticated(() => setIsStudioOpen(true))}
         />
 
         {/* 2. CỘT GIỮA: Nội dung chính Dashboard Gaming Desktop */}
@@ -128,7 +132,6 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
               />
             </div>
 
-            {/* Nút Chuyển đổi Sáng / Tối */}
             <ThemeModeToggle />
 
             <button
@@ -300,7 +303,7 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
                 </div>
 
                 <button
-                  onClick={() => setIsStudioOpen(true)}
+                  onClick={() => ensureAuthenticated(() => setIsStudioOpen(true))}
                   className={`w-full py-2.5 rounded-2xl text-xs font-bold transition-colors flex items-center justify-center gap-2 ${
                     mode === "dark" ? "bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10" : "bg-[#F7F4EB] hover:bg-slate-100 text-black border-2 border-black shadow-[2px_2px_0px_0px_#1C1917]"
                   }`}
@@ -361,10 +364,8 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
           </div>
         </main>
 
-        {/* 3. CỘT PHẢI: Profile, Friends online, Leaderboard */}
+        {/* 3. CỘT PHẢI: Profile & Leaderboard */}
         <RightSidebar
-          playerName={playerName}
-          onUpdatePlayerName={onUpdatePlayerName}
           onQuickJoinRoom={(code) => handleJoinByCode(code)}
         />
       </div>

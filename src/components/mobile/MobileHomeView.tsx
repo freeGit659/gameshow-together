@@ -7,27 +7,25 @@ import { CreatorStudioModal } from "@/components/CreatorStudioModal";
 import { CreatorPack } from "@/types/game";
 import { generateRoomCode } from "@/lib/utils";
 import { useThemeMode } from "@/context/ThemeModeContext";
+import { useAuth } from "@/context/AuthContext";
 import { ThemeModeToggle } from "@/components/ThemeModeToggle";
-import { RefreshCw, Video, VideoOff } from "lucide-react";
+import { RefreshCw, Video, VideoOff, LogIn, LogOut, ShieldCheck } from "lucide-react";
 
 interface MobileHomeViewProps {
-  playerName: string;
-  onUpdatePlayerName: (name: string) => void;
   packs: CreatorPack[];
   onSavePack: (pack: CreatorPack) => void;
 }
 
 export const MobileHomeView: React.FC<MobileHomeViewProps> = ({
-  playerName,
-  onUpdatePlayerName,
   packs,
   onSavePack,
 }) => {
   const router = useRouter();
   const { mode } = useThemeMode();
+  const { user, openAuthModal, logout, ensureAuthenticated, continueAsGuest } = useAuth();
 
   const [activeTab, setActiveTab] = useState<MobileTab>("home");
-  const [showWelcomeView, setShowWelcomeView] = useState(false);
+  const [showWelcomeView, setShowWelcomeView] = useState(!user); // Nếu chưa có user thì hiện welcome
   const [isStudioOpen, setIsStudioOpen] = useState(false);
   const [roomCodeInput, setRoomCodeInput] = useState("");
 
@@ -36,15 +34,21 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({
   const streamRef = useRef<MediaStream | null>(null);
 
   const handleCreateRoom = (packId = "general-knowledge-official") => {
-    const code = generateRoomCode();
-    router.push(`/room/${code}?isHost=true&packId=${packId}&name=${encodeURIComponent(playerName)}`);
+    ensureAuthenticated(() => {
+      const code = generateRoomCode();
+      const name = user?.username || "Thí sinh";
+      router.push(`/room/${code}?isHost=true&packId=${packId}&name=${encodeURIComponent(name)}`);
+    });
   };
 
   const handleJoinByCode = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const code = roomCodeInput.trim().toUpperCase();
-    if (!code) return;
-    router.push(`/room/${code}?name=${encodeURIComponent(playerName)}`);
+    ensureAuthenticated(() => {
+      const code = roomCodeInput.trim().toUpperCase();
+      if (!code) return;
+      const name = user?.username || "Thí sinh";
+      router.push(`/room/${code}?name=${encodeURIComponent(name)}`);
+    });
   };
 
   const handleToggleCam = async () => {
@@ -70,13 +74,14 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({
     }
   };
 
+  const currentDisplayName = user ? user.username : "Pablo";
+
   return (
     <div className="w-full max-w-md min-h-screen flex flex-col px-4 py-4 space-y-4 pb-24 mx-auto">
       {/* Top Mobile Status Header */}
       <div className="flex items-center justify-between text-xs font-bold px-1">
         <span className="font-mono">9:41</span>
         <div className="flex items-center gap-2">
-          {/* Nút Toggle Sáng/Tối cho Mobile */}
           <ThemeModeToggle className="scale-85" />
           <div className="w-5 h-2.5 rounded-sm border border-current p-0.5 flex items-center">
             <div className="h-full w-full bg-current rounded-xs" />
@@ -84,7 +89,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({
         </div>
       </div>
 
-      {showWelcomeView ? (
+      {showWelcomeView && !user ? (
         /* Màn hình Welcome Pablo 19-20 */
         <div className="flex-1 flex flex-col justify-between py-6 space-y-6">
           <div className="text-center">
@@ -118,16 +123,19 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({
 
           <div className="space-y-3 pt-6">
             <button
-              onClick={() => handleCreateRoom()}
+              onClick={() => openAuthModal()}
               className="w-full py-3.5 rounded-2xl text-xs font-black uppercase bg-[#FDE047] text-black border-2 border-black shadow-[3px_3px_0px_0px_#1C1917]"
             >
-              Tạo phòng nhanh (Host)
+              Đăng Nhập / Tạo Tài Khoản
             </button>
             <button
-              onClick={() => setShowWelcomeView(false)}
+              onClick={() => {
+                continueAsGuest();
+                setShowWelcomeView(false);
+              }}
               className="w-full py-3.5 rounded-2xl text-xs font-bold uppercase bg-white text-black border-2 border-black shadow-[3px_3px_0px_0px_#1C1917]"
             >
-              Vào Sảnh Đấu Trực Tuyến
+              Chơi Nhanh Với Tư Cách Khách
             </button>
           </div>
         </div>
@@ -136,23 +144,46 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({
         <div className="flex-1 flex flex-col space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-black">Hi, {playerName}</h2>
-              <p className="text-xs text-slate-500 font-bold">Welcome back!</p>
-            </div>
-
-            <div onClick={handleToggleCam} className="relative cursor-pointer" title="Bật/Tắt Webcam">
-              <div className={`w-11 h-11 rounded-full overflow-hidden border-2 shadow-[2px_2px_0px_0px_#000] ${
-                mode === "dark" ? "border-violet-500 bg-slate-900" : "border-black bg-[#FDE047]"
-              }`}>
-                {isCamActive ? (
-                  <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
-                ) : (
-                  <img src={`https://api.dicebear.com/7.x/bottts/svg?seed=${playerName}`} alt="Avatar" className="w-full h-full object-cover" />
+              <div className="flex items-center gap-1.5">
+                <h2 className="text-base font-black truncate max-w-[150px]">Hi, {currentDisplayName}</h2>
+                {user?.isGuest && (
+                  <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-500">
+                    Khách
+                  </span>
+                )}
+                {user && !user.isGuest && (
+                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
                 )}
               </div>
-              <div className={`absolute -bottom-0.5 -right-0.5 p-0.5 rounded-full border border-black ${isCamActive ? "bg-emerald-400" : "bg-white"}`}>
-                {isCamActive ? <Video className="w-2.5 h-2.5 text-black" /> : <VideoOff className="w-2.5 h-2.5 text-black" />}
-              </div>
+              <p className="text-xs text-slate-500 font-bold">
+                {user ? (user.isGuest ? "Chế độ Khách (Offline)" : `${user.score}đ • ${user.bells} chuông`) : "Welcome back!"}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {!user ? (
+                <button
+                  onClick={openAuthModal}
+                  className="px-3 py-1 rounded-xl text-xs font-black uppercase bg-[#FDE047] text-black border border-black shadow-[1px_1px_0px_0px_#000]"
+                >
+                  Login
+                </button>
+              ) : (
+                <div onClick={handleToggleCam} className="relative cursor-pointer" title="Bật/Tắt Webcam">
+                  <div className={`w-11 h-11 rounded-full overflow-hidden border-2 shadow-[2px_2px_0px_0px_#000] ${
+                    mode === "dark" ? "border-violet-500 bg-slate-900" : "border-black bg-[#FDE047]"
+                  }`}>
+                    {isCamActive ? (
+                      <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
+                    ) : (
+                      <img src={user.avatar} alt="Avatar" className="w-full h-full object-cover" />
+                    )}
+                  </div>
+                  <div className={`absolute -bottom-0.5 -right-0.5 p-0.5 rounded-full border border-black ${isCamActive ? "bg-emerald-400" : "bg-white"}`}>
+                    {isCamActive ? <Video className="w-2.5 h-2.5 text-black" /> : <VideoOff className="w-2.5 h-2.5 text-black" />}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -179,7 +210,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({
             </button>
           </form>
 
-          {/* Mystery Game Shows (2 Thẻ Pastel Vuông) */}
+          {/* Featured Shows (2 Thẻ Pastel Vuông) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-black uppercase tracking-wider">Featured Shows</h3>
@@ -229,7 +260,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({
           <div className="space-y-2 pt-1">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-black uppercase tracking-wider">Game Shows & Bộ Đề</h3>
-              <button onClick={() => setIsStudioOpen(true)} className="text-xs font-bold text-slate-500">
+              <button onClick={() => ensureAuthenticated(() => setIsStudioOpen(true))} className="text-xs font-bold text-slate-500">
                 Tạo mới →
               </button>
             </div>
@@ -269,10 +300,17 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({
             </div>
           </div>
 
-          <div className="pt-1 text-center">
-            <button onClick={() => setShowWelcomeView(true)} className="text-[10px] font-bold text-slate-500 underline">
-              Xem lại màn hình Welcome Pablo 19-20
+          {/* Nút Đăng xuất / Xem lại Welcome */}
+          <div className="pt-1 flex items-center justify-between text-[10px] font-bold text-slate-500 px-1">
+            <button onClick={() => setShowWelcomeView(true)} className="underline">
+              Màn hình Welcome 19-20
             </button>
+            {user && (
+              <button onClick={logout} className="hover:text-rose-500 flex items-center gap-1">
+                <LogOut className="w-3 h-3" />
+                Đăng xuất
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -282,7 +320,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         onOpenSettings={() => {}}
-        onOpenStudio={() => setIsStudioOpen(true)}
+        onOpenStudio={() => ensureAuthenticated(() => setIsStudioOpen(true))}
       />
 
       <CreatorStudioModal

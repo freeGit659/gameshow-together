@@ -12,12 +12,14 @@ import { HostControls } from "@/components/HostControls";
 import { ChatBox } from "@/components/ChatBox";
 import { ThemeModeToggle } from "@/components/ThemeModeToggle";
 import { useThemeMode } from "@/context/ThemeModeContext";
+import { useAuth } from "@/context/AuthContext";
 import { 
   Copy, 
   Check, 
   Volume2, 
   VolumeX, 
-  ArrowLeft
+  ArrowLeft,
+  LogIn
 } from "lucide-react";
 
 export default function RoomPage() {
@@ -27,10 +29,10 @@ export default function RoomPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { mode } = useThemeMode();
+  const { user, isLoading: isAuthLoading, openAuthModal } = useAuth();
 
   const isHostParam = searchParams.get("isHost") === "true";
   const packIdParam = searchParams.get("packId") || DEFAULT_PACKS[0].id;
-  const playerNameParam = searchParams.get("name") || `Thí sinh ${Math.floor(100 + Math.random() * 900)}`;
 
   const [socket, setSocket] = useState<Socket | null>(null);
   const [room, setRoom] = useState<GameRoom | null>(null);
@@ -45,6 +47,13 @@ export default function RoomPage() {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const peerConnections = useRef<Record<string, RTCPeerConnection>>({});
+
+  // Yêu cầu chọn tài khoản nếu chưa có
+  useEffect(() => {
+    if (!isAuthLoading && !user) {
+      openAuthModal();
+    }
+  }, [isAuthLoading, user, openAuthModal]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -69,7 +78,10 @@ export default function RoomPage() {
     };
   }, []);
 
+  // Kết nối socket sau khi đã xác định danh tính user/guest
   useEffect(() => {
+    if (!user) return; // Chưa chọn tài khoản thì chưa kết nối
+
     const newSocket = io({
       transports: ["websocket", "polling"],
     });
@@ -79,19 +91,20 @@ export default function RoomPage() {
     newSocket.on("connect", () => {
       setMyPlayerId(newSocket.id || "");
 
-      const avatar = `https://api.dicebear.com/7.x/bottts/svg?seed=${playerNameParam}`;
+      const playerName = user.username;
+      const avatar = user.avatar;
 
       if (isHostParam) {
         newSocket.emit("create_room", {
           roomCode,
-          playerName: playerNameParam,
+          playerName,
           avatar,
           packId: packIdParam,
         });
       } else {
         newSocket.emit("join_room", {
           roomCode,
-          playerName: playerNameParam,
+          playerName,
           avatar,
         });
       }
@@ -125,6 +138,18 @@ export default function RoomPage() {
         if (myResult) {
           if (myResult.isCorrect) {
             soundManager.playCorrect();
+            // Nếu không phải Khách -> cộng 100 điểm lên database
+            if (!user.isGuest) {
+              fetch("/api/auth/update-score", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  userId: user.id.startsWith("usr_") ? null : user.id,
+                  username: user.username,
+                  scoreDelta: 100,
+                }),
+              }).catch(() => {});
+            }
           } else {
             soundManager.playWrong();
           }
@@ -133,7 +158,23 @@ export default function RoomPage() {
     });
 
     newSocket.on("revival_success", () => soundManager.playRevival());
-    newSocket.on("bell_rung", () => soundManager.playGoldenBell());
+
+    newSocket.on("bell_rung", ({ winner }: any) => {
+      soundManager.playGoldenBell();
+      // Nếu mình là người thắng chuông vàng và không phải khách -> ghi nhận 1 chuông vàng
+      if (winner && winner.name === user.username && !user.isGuest) {
+        fetch("/api/auth/update-score", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: user.id.startsWith("usr_") ? null : user.id,
+            username: user.username,
+            scoreDelta: 500,
+            wonBell: true,
+          }),
+        }).catch(() => {});
+      }
+    });
 
     newSocket.on("error_message", (msg: string) => {
       alert(msg);
@@ -148,7 +189,7 @@ export default function RoomPage() {
     return () => {
       newSocket.disconnect();
     };
-  }, [roomCode, isHostParam, packIdParam, playerNameParam, router]);
+  }, [roomCode, isHostParam, packIdParam, user, router]);
 
   useEffect(() => {
     if (socket && localStream) {
@@ -200,6 +241,23 @@ export default function RoomPage() {
     const isMuted = soundManager.toggleMute();
     setIsMutedSound(isMuted);
   };
+
+  // Nếu chưa có tài khoản hoặc đang load auth
+  if (isAuthLoading || !user) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center space-y-4">
+        <div className="w-14 h-14 rounded-full border-4 border-current border-t-transparent animate-spin opacity-50" />
+        <h2 className="text-base font-black uppercase">Vui lòng đăng nhập hoặc chọn Chơi Khách</h2>
+        <button
+          onClick={openAuthModal}
+          className="px-5 py-2.5 rounded-2xl text-xs font-black uppercase bg-[#FDE047] text-black border-2 border-black shadow-[3px_3px_0px_0px_#1C1917] flex items-center gap-2"
+        >
+          <LogIn className="w-4 h-4" />
+          <span>Mở Bảng Đăng Nhập / Tạo Tài Khoản</span>
+        </button>
+      </div>
+    );
+  }
 
   if (!room) {
     return (
@@ -275,10 +333,8 @@ export default function RoomPage() {
               Loại: {eliminatedCount}
             </div>
 
-            {/* Toggle Sáng / Tối */}
             <ThemeModeToggle className="scale-90" />
 
-            {/* Toggle Âm thanh */}
             <button
               onClick={toggleSound}
               className={`p-1.5 rounded-xl border transition-all ${
@@ -290,6 +346,18 @@ export default function RoomPage() {
             </button>
           </div>
         </div>
+
+        {/* Thông báo nếu là Khách */}
+        {user.isGuest && (
+          <div className={`px-4 py-2 rounded-2xl text-xs font-bold flex items-center justify-between border ${
+            mode === "dark" ? "bg-amber-500/10 border-amber-500/30 text-amber-300" : "bg-[#FEF08A] border-2 border-black shadow-[2px_2px_0px_0px_#000]"
+          }`}>
+            <span>⚠️ Bạn đang chơi với tư cách Khách. Điểm số trận này chỉ lưu trên máy bạn và không đẩy lên BXH chung.</span>
+            <button onClick={openAuthModal} className="underline font-black ml-2 shrink-0">
+              Đăng nhập ngay
+            </button>
+          </div>
+        )}
 
         {/* Danh Sách Thí Sinh: Webcam Avatar Tròn */}
         <div className={`rounded-3xl p-3.5 overflow-x-auto ${
