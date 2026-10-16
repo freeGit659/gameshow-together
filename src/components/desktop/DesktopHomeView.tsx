@@ -44,7 +44,7 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
   const handleCreateRoom = (packId = "general-knowledge-official") => {
     ensureAuthenticated(() => {
       const code = generateRoomCode();
-      const name = user?.username || "Thí sinh";
+      const name = user?.fullName || user?.username || "Thí sinh";
       router.push(`/room/${code}?isHost=true&packId=${packId}&name=${encodeURIComponent(name)}`);
     });
   };
@@ -53,41 +53,39 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
     ensureAuthenticated(() => {
       const code = (codeToJoin || roomCodeInput).trim().toUpperCase();
       if (!code) return;
-      const name = user?.username || "Thí sinh";
+      const name = user?.fullName || user?.username || "Thí sinh";
       router.push(`/room/${code}?name=${encodeURIComponent(name)}`);
     });
   };
 
-  const trendingShows = [
+  // Chỉ 1 game duy nhất: Đấu Trường Chuông Vàng với các chế độ bộ đề
+  const goldenBellModes = [
     {
-      id: "rung-chuong-vang",
-      title: "Đấu Trường Chuông Vàng",
-      genre: "Real-time Survival Quiz 15s",
-      players: "1.2K đang chơi",
+      id: "general-knowledge-official",
+      title: "Chuông Vàng: Tri Thức Tổng Hợp",
+      genre: "15 Câu Hỏi Sinh Tồn 15s • Đa Lĩnh Vực",
+      packId: "general-knowledge-official",
       image: "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=400&q=80",
-      playable: true,
+      tag: "CHÍNH THỨC",
+      rating: "5.0",
+    },
+    {
+      id: "it-dev-vibecoding",
+      title: "Chuông Vàng: Coder & Công Nghệ",
+      genre: "Lập Trình Viên • Web • AI & Hệ Thống",
+      packId: "it-dev-vibecoding",
+      image: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=400&q=80",
       tag: "HOT",
       rating: "4.9",
     },
     {
-      id: "ai-la-trieu-phu",
-      title: "Đấu Trường Triệu Phú",
-      genre: "15 Câu Hỏi Leo Thang",
-      players: "840 đang chơi",
-      image: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=400&q=80",
-      playable: true,
-      tag: "CLASSIC",
-      rating: "4.8",
-    },
-    {
-      id: "chiec-non-ky-dieu",
-      title: "Vòng Xoay Ô Chữ",
-      genre: "Đoán Chữ May Mắn",
-      players: "620 đang chơi",
+      id: "creator-studio",
+      title: "Chuông Vàng: Gói Đề Tự Tạo",
+      genre: "Sáng Tạo Đề Thi Riêng Cùng Bạn Bè",
+      packId: "custom",
       image: "https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=400&q=80",
-      playable: false,
-      tag: "SẮP RA MẮT",
-      rating: "4.7",
+      tag: "CREATOR",
+      rating: "4.8",
     },
   ];
 
@@ -123,7 +121,7 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Tìm kiếm game show, chủ đề, câu hỏi, nhà sáng tạo..."
+                placeholder="Tìm kiếm chủ đề câu hỏi Chuông Vàng, tác giả gói đề..."
                 className={`w-full rounded-2xl pl-11 pr-4 py-3 text-xs focus:outline-none transition-all shadow-sm ${
                   mode === "dark"
                     ? "bg-[#10131d]/90 border border-white/5 text-slate-200 placeholder-slate-500 focus:border-white/20"
@@ -195,11 +193,11 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
             </div>
           </div>
 
-          {/* Trending Games 🔥 */}
+          {/* Golden Bell Show Modes 🔥 */}
           <div className="space-y-3.5">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-extrabold flex items-center gap-2">
-                <span>Trending games</span>
+                <span>Chế độ Đấu Trường Chuông Vàng</span>
                 <Flame className="w-4 h-4 text-orange-500" />
               </h3>
 
@@ -226,10 +224,16 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
             </div>
 
             <div className="grid grid-cols-3 gap-4">
-              {trendingShows.map((game) => (
+              {goldenBellModes.map((modeItem) => (
                 <div
-                  key={game.id}
-                  onClick={() => game.playable && handleCreateRoom()}
+                  key={modeItem.id}
+                  onClick={() => {
+                    if (modeItem.packId === "custom") {
+                      ensureAuthenticated(() => setIsStudioOpen(true));
+                    } else {
+                      handleCreateRoom(modeItem.packId);
+                    }
+                  }}
                   className={`rounded-2xl overflow-hidden p-3 flex flex-col justify-between cursor-pointer group transition-all duration-200 ${
                     mode === "dark"
                       ? "bg-[#131726] border border-white/5 hover:border-white/20 hover:-translate-y-1"
@@ -237,24 +241,24 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
                   }`}
                 >
                   <div className="relative aspect-[16/10] rounded-xl overflow-hidden bg-slate-900 mb-3">
-                    <img src={game.image} alt={game.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                    <img src={modeItem.image} alt={modeItem.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                     <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md text-[9px] font-black uppercase px-2 py-0.5 rounded-md text-white">
-                      {game.tag}
+                      {modeItem.tag}
                     </div>
                     <div className="absolute top-2 right-2 flex items-center gap-0.5 bg-black/60 backdrop-blur-md text-[10px] font-bold px-1.5 py-0.5 rounded-md text-yellow-400">
                       <Star className="w-3 h-3 fill-yellow-400" />
-                      {game.rating}
+                      {modeItem.rating}
                     </div>
                   </div>
 
                   <div>
                     <h4 className="text-xs font-bold truncate group-hover:text-violet-400 transition-colors">
-                      {game.title}
+                      {modeItem.title}
                     </h4>
-                    <p className="text-[10px] text-slate-400 truncate mt-0.5">{game.genre}</p>
-                    <div className="text-[10px] font-semibold text-violet-400 mt-2 flex items-center gap-1">
-                      <Users className="w-3.5 h-3.5" />
-                      {game.players}
+                    <p className="text-[10px] text-slate-400 truncate mt-0.5">{modeItem.genre}</p>
+                    <div className="text-[10px] font-semibold text-emerald-400 mt-2 flex items-center gap-1">
+                      <Play className="w-3 h-3 fill-current" />
+                      Bấm để tạo phòng ngay
                     </div>
                   </div>
                 </div>
@@ -262,7 +266,7 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
             </div>
           </div>
 
-          {/* Quick Join & Recent Plays */}
+          {/* Quick Join & Recent Packs */}
           <div className="grid grid-cols-12 gap-5">
             <div
               className={`col-span-5 rounded-3xl p-5 flex flex-col justify-between space-y-4 ${
@@ -276,15 +280,21 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
                   Gia Nhập Phòng Bằng Mã
                 </h4>
                 <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                  Nhập mã 6 chữ cái để ngồi vào bàn chơi cùng bạn bè ngay.
+                  Nhập mã phòng (VD: BELL99 hoặc mã 6 ký tự) để ngồi vào sàn đấu trực tiếp cùng bạn bè.
                 </p>
               </div>
 
               <div className="space-y-3">
-                <div className="flex gap-2">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleJoinByCode();
+                  }}
+                  className="flex gap-2"
+                >
                   <input
                     type="text"
-                    maxLength={6}
+                    maxLength={10}
                     value={roomCodeInput}
                     onChange={(e) => setRoomCodeInput(e.target.value.toUpperCase())}
                     placeholder="MÃ PHÒNG (VD: BELL99)"
@@ -293,14 +303,15 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
                     }`}
                   />
                   <button
-                    onClick={() => handleJoinByCode()}
+                    type="submit"
                     className={`px-4 py-2.5 rounded-2xl text-xs font-bold active:scale-95 transition-transform ${
                       mode === "dark" ? "bg-violet-600 text-white" : "bg-[#FDE047] text-black border-2 border-black shadow-[2px_2px_0px_0px_#1C1917]"
                     }`}
+                    title="Vào phòng"
                   >
                     <ArrowRight className="w-4 h-4" />
                   </button>
-                </div>
+                </form>
 
                 <button
                   onClick={() => ensureAuthenticated(() => setIsStudioOpen(true))}
@@ -309,7 +320,7 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
                   }`}
                 >
                   <PlusCircle className="w-3.5 h-3.5" />
-                  Mở Creator Studio (Tạo đề)
+                  Mở Creator Studio (Tạo đề riêng)
                 </button>
               </div>
             </div>
@@ -320,7 +331,7 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
               }`}
             >
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-black uppercase">Recent Game Packs</h4>
+                <h4 className="text-xs font-black uppercase">Gói Câu Hỏi Rung Chuông Vàng</h4>
                 <span className="text-[10px] text-slate-400 font-mono">{filteredPacks.length} gói đề</span>
               </div>
 
@@ -341,7 +352,7 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
                         <div>
                           <div className="text-xs font-bold">{pack.title}</div>
                           <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
-                            <span>Bởi: {pack.author}</span>
+                            <span>Tác giả: {pack.author}</span>
                             <span>•</span>
                             <span className="font-bold text-yellow-500">{isFree ? "Miễn phí" : `${pack.price.toLocaleString()}đ`}</span>
                           </div>
@@ -354,7 +365,7 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
                           mode === "dark" ? "bg-violet-600/80 hover:bg-violet-600 text-white" : "bg-[#FDE047] text-black border border-black font-black"
                         }`}
                       >
-                        Play
+                        Chơi
                       </button>
                     </div>
                   );
@@ -364,9 +375,10 @@ export const DesktopHomeView: React.FC<DesktopHomeViewProps> = ({
           </div>
         </main>
 
-        {/* 3. CỘT PHẢI: Profile & Leaderboard */}
+        {/* 3. CỘT PHẢI: Profile, Phòng Live & Leaderboard */}
         <RightSidebar
           onQuickJoinRoom={(code) => handleJoinByCode(code)}
+          onCreateRoom={() => handleCreateRoom()}
         />
       </div>
 

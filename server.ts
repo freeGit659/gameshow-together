@@ -3,44 +3,59 @@ import next from "next";
 import { Server, Socket } from "socket.io";
 import { DEFAULT_PACKS } from "./src/lib/questions";
 import { GameRoom, Player, Question, CreatorPack } from "./src/types/game";
-import { getPacksFromSupabase, isSupabaseConfigured } from "./src/lib/supabase";
+import { getPacksFromSupabase, isSupabaseConfigured, supabase } from "./src/lib/supabase";
 
 const dev = process.env.NODE_ENV !== "production";
-const hostname = "0.0.0.0"; // Lắng nghe trên mọi interface mạng (Bắt buộc cho Render/Cloud)
+const hostname = "0.0.0.0";
 const port = parseInt(process.env.PORT || "3000", 10);
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-// Bộ nhớ tạm lưu trữ các phòng đang chạy
 const rooms: Record<string, GameRoom> = {};
 const roomTimers: Record<string, NodeJS.Timeout> = {};
-
-// Creator Packs bộ nhớ tạm
 const creatorPacks: Record<string, CreatorPack> = {};
+
 DEFAULT_PACKS.forEach((p) => {
   creatorPacks[p.id] = p;
 });
 
-// Thử nạp packs từ Supabase khi khởi động server
+// Nạp packs từ Supabase khi khởi động
 if (isSupabaseConfigured) {
   getPacksFromSupabase().then((dbPacks) => {
     if (dbPacks && dbPacks.length > 0) {
       dbPacks.forEach((p: CreatorPack) => {
         creatorPacks[p.id] = p;
       });
-      console.log(`[Supabase] Loaded ${dbPacks.length} creator packs from database.`);
+      console.log(`[Supabase] Loaded ${dbPacks.length} packs from database.`);
     }
   });
 }
 
+function getActiveRoomsSummary() {
+  return Object.values(rooms).map((r) => ({
+    code: r.code,
+    name: r.name,
+    hostId: r.hostId,
+    playersCount: Object.keys(r.players).length,
+    stage: r.stage,
+    selectedPackId: r.selectedPackId,
+  }));
+}
+
 app.prepare().then(() => {
   const httpServer = createServer(async (req, res) => {
-    // Health check endpoint cho Render / Koyeb liveness check
     if (req.url === "/api/health") {
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify({ status: "ok", uptime: process.uptime(), roomsCount: Object.keys(rooms).length }));
+      return;
+    }
+
+    if (req.url === "/api/rooms") {
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ rooms: getActiveRoomsSummary() }));
       return;
     }
 
@@ -64,8 +79,11 @@ app.prepare().then(() => {
   io.on("connection", (socket: Socket) => {
     let currentRoomCode: string | null = null;
 
+    // Gửi danh sách phòng đang mở ngay khi kết nối
+    socket.emit("active_rooms_update", getActiveRoomsSummary());
+
     // 1. Tạo phòng
-    socket.on("create_room", ({ roomCode, playerName, avatar, packId = "general-knowledge-official" }: { roomCode: string; playerName: string; avatar: string; packId?: string }) => {
+    socket.on("create_room", async ({ roomCode, playerName, avatar, packId = "general-knowledge-official" }: { roomCode: string; playerName: string; avatar: string; packId?: string }) => {
       const code = roomCode.toUpperCase().trim();
       const pack = creatorPacks[packId] || DEFAULT_PACKS[0];
 
@@ -109,19 +127,83 @@ app.prepare().then(() => {
       currentRoomCode = code;
       socket.join(code);
       socket.emit("room_joined", { room: rooms[code], myPlayerId: socket.id });
+
+      // Lưu phòng vào Supabase nếu có cấu hình
+      if (isSupabaseConfigured && supabase) {
+        supabase
+          .from("rooms")
+          .upsert({
+            code,
+            host_id: hostPlayer.name,
+            status: "lobby",
+          })
+          .then(
+            () => {},
+            (e: any) => console.warn("Supabase upsert room error:", e)
+          );
+      }
+
+      // Broadcast danh sách phòng đang mở cho toàn bộ người chơi ở trang chủ
+      io.emit("active_rooms_update", getActiveRoomsSummary());
       console.log(`[Room ${code}] Created by ${hostPlayer.name} (${socket.id})`);
     });
 
-    // 2. Tham gia phòng
+    // 2. Tham gia phòng bằng mã (Realtime)
     socket.on("join_room", ({ roomCode, playerName, avatar }: { roomCode: string; playerName: string; avatar: string }) => {
-      const code = roomCode.toUpperCase().trim();
-      const room = rooms[code];
+      const code = (roomCode || "").toUpperCase().trim();
+      let room = rooms[code];
 
+      // Nếu phòng chưa có trên server (hoặc người vào đầu tiên bằng mã trực tiếp)
       if (!room) {
-        socket.emit("error_message", "Mã phòng không tồn tại. Vui lòng kiểm tra lại!");
+        // Tự động khởi tạo phòng với người này làm Host nếu phòng chưa có ai
+        const defaultPack = DEFAULT_PACKS[0];
+        const newHost: Player = {
+          id: socket.id,
+          name: playerName || "Host",
+          avatar: avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${socket.id}`,
+          isHost: true,
+          status: "alive",
+          currentAnswer: null,
+          score: 0,
+          isReady: true,
+          hasWebcam: false,
+          isMuted: false,
+          isVideoOff: false,
+        };
+
+        rooms[code] = {
+          code,
+          name: `Phòng của ${newHost.name}`,
+          hostId: socket.id,
+          players: { [socket.id]: newHost },
+          stage: "lobby",
+          currentQuestionIndex: 0,
+          questions: defaultPack.questions,
+          timeRemaining: 15,
+          selectedPackId: defaultPack.id,
+          chatMessages: [
+            {
+              id: `msg-${Date.now()}`,
+              senderId: "system",
+              senderName: "Hệ thống",
+              message: `Chào mừng bạn đến với Đấu trường Rung Chuông Vàng! Mã phòng: ${code}`,
+              timestamp: Date.now(),
+              isSystem: true,
+            },
+          ],
+          bellRingerId: null,
+        };
+
+        room = rooms[code];
+        currentRoomCode = code;
+        socket.join(code);
+        socket.emit("room_joined", { room, myPlayerId: socket.id });
+        io.emit("active_rooms_update", getActiveRoomsSummary());
+        console.log(`[Room ${code}] Auto-created by first joiner ${newHost.name}`);
         return;
       }
 
+      // Phòng đã tồn tại -> Tham gia bình thường
       const newPlayer: Player = {
         id: socket.id,
         name: playerName || `Thí sinh ${Object.keys(room.players).length + 1}`,
@@ -151,7 +233,8 @@ app.prepare().then(() => {
 
       io.to(code).emit("room_updated", room);
       socket.emit("room_joined", { room, myPlayerId: socket.id });
-      console.log(`[Room ${code}] Player ${newPlayer.name} joined`);
+      io.emit("active_rooms_update", getActiveRoomsSummary());
+      console.log(`[Room ${code}] Player ${newPlayer.name} joined. Total: ${Object.keys(room.players).length}`);
     });
 
     // 3. Cập nhật thiết bị Media
@@ -427,6 +510,20 @@ app.prepare().then(() => {
         if (Object.keys(room.players).length === 0) {
           if (roomTimers[currentRoomCode]) clearInterval(roomTimers[currentRoomCode]);
           delete rooms[currentRoomCode];
+
+          // Xóa khỏi Supabase
+          if (isSupabaseConfigured && supabase) {
+            supabase
+              .from("rooms")
+              .delete()
+              .eq("code", currentRoomCode)
+              .then(
+                () => {},
+                (e: any) => console.warn("Supabase delete room error:", e)
+              );
+          }
+
+          io.emit("active_rooms_update", getActiveRoomsSummary());
           console.log(`[Room ${currentRoomCode}] Empty and closed.`);
         } else {
           if (room.hostId === socket.id) {
@@ -446,6 +543,7 @@ app.prepare().then(() => {
 
           io.to(currentRoomCode).emit("room_updated", room);
           io.to(currentRoomCode).emit("player_left", { playerId: socket.id });
+          io.emit("active_rooms_update", getActiveRoomsSummary());
         }
       }
     });
@@ -463,6 +561,5 @@ app.prepare().then(() => {
 
   httpServer.listen(port, hostname, () => {
     console.log(`> GameShow Together running on http://${hostname}:${port}`);
-    console.log(`> Cloud deployment ready (Render / Koyeb / Docker)`);
   });
 });

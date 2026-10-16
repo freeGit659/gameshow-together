@@ -3,6 +3,7 @@ import "./globals.css";
 import { ThemeModeProvider } from "@/context/ThemeModeContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { AuthModal } from "@/components/AuthModal";
+import { EditProfileModal } from "@/components/EditProfileModal";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -31,6 +32,7 @@ export default function RootLayout({
           <AuthProvider>
             {children}
             <AuthModal />
+            <EditProfileModal />
           </AuthProvider>
         </ThemeModeProvider>
       </body>

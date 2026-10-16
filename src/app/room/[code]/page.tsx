@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useSearchParams, useRouter, useParams } from "next/navigation";
 import { io, Socket } from "socket.io-client";
 import { GameRoom, Player, Question, CreatorPack } from "@/types/game";
@@ -19,17 +19,18 @@ import {
   Volume2, 
   VolumeX, 
   ArrowLeft,
-  LogIn
+  LogIn,
+  Share2
 } from "lucide-react";
 
 export default function RoomPage() {
   const routeParams = useParams();
-  const roomCode = ((routeParams?.code as string) || "ROOM").toUpperCase();
+  const roomCode = ((routeParams?.code as string) || "ROOM").toUpperCase().trim();
 
   const searchParams = useSearchParams();
   const router = useRouter();
   const { mode } = useThemeMode();
-  const { user, isLoading: isAuthLoading, openAuthModal } = useAuth();
+  const { user, isLoading: isAuthLoading, openAuthModal, updateUserSession } = useAuth();
 
   const isHostParam = searchParams.get("isHost") === "true";
   const packIdParam = searchParams.get("packId") || DEFAULT_PACKS[0].id;
@@ -40,7 +41,8 @@ export default function RoomPage() {
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [correctAnswer, setCorrectAnswer] = useState<string | null>(null);
   const [explanation, setExplanation] = useState<string | null>(null);
-  const [isCopied, setIsCopied] = useState(false);
+  const [isCopiedLink, setIsCopiedLink] = useState(false);
+  const [isCopiedCode, setIsCopiedCode] = useState(false);
   const [isMutedSound, setIsMutedSound] = useState(false);
   const [packs, setPacks] = useState<CreatorPack[]>(DEFAULT_PACKS);
 
@@ -55,6 +57,7 @@ export default function RoomPage() {
     }
   }, [isAuthLoading, user, openAuthModal]);
 
+  // Khởi tạo Media Stream (Webcam & Mic)
   useEffect(() => {
     let stream: MediaStream | null = null;
     navigator.mediaDevices
@@ -75,12 +78,46 @@ export default function RoomPage() {
         stream.getTracks().forEach((track) => track.stop());
       }
       Object.values(peerConnections.current).forEach((pc) => pc.close());
+      peerConnections.current = {};
     };
   }, []);
 
+  // WebRTC Helper: Tạo Peer Connection cho 1 player
+  const getOrCreatePeerConnection = useCallback((peerId: string, currentSocket: Socket): RTCPeerConnection => {
+    if (peerConnections.current[peerId]) {
+      return peerConnections.current[peerId];
+    }
+
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+      ],
+    });
+
+    if (localStream) {
+      localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+    }
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        currentSocket.emit("webrtc_ice_candidate", { to: peerId, candidate: event.candidate });
+      }
+    };
+
+    pc.ontrack = (event) => {
+      if (event.streams && event.streams[0]) {
+        setRemoteStreams((prev) => ({ ...prev, [peerId]: event.streams[0] }));
+      }
+    };
+
+    peerConnections.current[peerId] = pc;
+    return pc;
+  }, [localStream]);
+
   // Kết nối socket sau khi đã xác định danh tính user/guest
   useEffect(() => {
-    if (!user) return; // Chưa chọn tài khoản thì chưa kết nối
+    if (!user) return;
 
     const newSocket = io({
       transports: ["websocket", "polling"],
@@ -91,7 +128,7 @@ export default function RoomPage() {
     newSocket.on("connect", () => {
       setMyPlayerId(newSocket.id || "");
 
-      const playerName = user.username;
+      const playerName = user.fullName || user.username;
       const avatar = user.avatar;
 
       if (isHostParam) {
@@ -117,6 +154,69 @@ export default function RoomPage() {
 
     newSocket.on("room_updated", (updatedRoom: GameRoom) => {
       setRoom(updatedRoom);
+
+      // Nếu có người chơi mới và mình là Host -> khởi tạo WebRTC offer
+      if (updatedRoom.hostId === newSocket.id && localStream) {
+        Object.keys(updatedRoom.players).forEach(async (playerId) => {
+          if (playerId !== newSocket.id && !peerConnections.current[playerId]) {
+            try {
+              const pc = getOrCreatePeerConnection(playerId, newSocket);
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              newSocket.emit("webrtc_offer", { to: playerId, offer });
+            } catch (e) {
+              console.warn("Error creating WebRTC offer:", e);
+            }
+          }
+        });
+      }
+    });
+
+    // WebRTC Signaling Events
+    newSocket.on("webrtc_offer", async ({ from, offer }: { from: string; offer: any }) => {
+      try {
+        const pc = getOrCreatePeerConnection(from, newSocket);
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        newSocket.emit("webrtc_answer", { to: from, answer });
+      } catch (e) {
+        console.warn("Error answering WebRTC offer:", e);
+      }
+    });
+
+    newSocket.on("webrtc_answer", async ({ from, answer }: { from: string; answer: any }) => {
+      try {
+        const pc = peerConnections.current[from];
+        if (pc) {
+          await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        }
+      } catch (e) {
+        console.warn("Error setting remote answer:", e);
+      }
+    });
+
+    newSocket.on("webrtc_ice_candidate", async ({ from, candidate }: { from: string; candidate: any }) => {
+      try {
+        const pc = peerConnections.current[from];
+        if (pc && candidate) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+      } catch (e) {
+        console.warn("Error adding ICE candidate:", e);
+      }
+    });
+
+    newSocket.on("player_left", ({ playerId }: { playerId: string }) => {
+      if (peerConnections.current[playerId]) {
+        peerConnections.current[playerId].close();
+        delete peerConnections.current[playerId];
+      }
+      setRemoteStreams((prev) => {
+        const copy = { ...prev };
+        delete copy[playerId];
+        return copy;
+      });
     });
 
     newSocket.on("question_started", () => {
@@ -138,7 +238,8 @@ export default function RoomPage() {
         if (myResult) {
           if (myResult.isCorrect) {
             soundManager.playCorrect();
-            // Nếu không phải Khách -> cộng 100 điểm lên database
+            // Cập nhật điểm cho user
+            updateUserSession({ score: user.score + 100 });
             if (!user.isGuest) {
               fetch("/api/auth/update-score", {
                 method: "POST",
@@ -161,18 +262,20 @@ export default function RoomPage() {
 
     newSocket.on("bell_rung", ({ winner }: any) => {
       soundManager.playGoldenBell();
-      // Nếu mình là người thắng chuông vàng và không phải khách -> ghi nhận 1 chuông vàng
-      if (winner && winner.name === user.username && !user.isGuest) {
-        fetch("/api/auth/update-score", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            userId: user.id.startsWith("usr_") ? null : user.id,
-            username: user.username,
-            scoreDelta: 500,
-            wonBell: true,
-          }),
-        }).catch(() => {});
+      if (winner && winner.name === (user.fullName || user.username)) {
+        updateUserSession({ score: user.score + 500, bells: user.bells + 1 });
+        if (!user.isGuest) {
+          fetch("/api/auth/update-score", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: user.id.startsWith("usr_") ? null : user.id,
+              username: user.username,
+              scoreDelta: 500,
+              wonBell: true,
+            }),
+          }).catch(() => {});
+        }
       }
     });
 
@@ -189,7 +292,7 @@ export default function RoomPage() {
     return () => {
       newSocket.disconnect();
     };
-  }, [roomCode, isHostParam, packIdParam, user, router]);
+  }, [roomCode, isHostParam, packIdParam, user, router, localStream, getOrCreatePeerConnection, updateUserSession]);
 
   useEffect(() => {
     if (socket && localStream) {
@@ -232,8 +335,16 @@ export default function RoomPage() {
   const handleCopyLink = () => {
     if (typeof window !== "undefined") {
       navigator.clipboard.writeText(`${window.location.origin}/room/${roomCode}`);
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2000);
+      setIsCopiedLink(true);
+      setTimeout(() => setIsCopiedLink(false), 2000);
+    }
+  };
+
+  const handleCopyCode = () => {
+    if (typeof window !== "undefined") {
+      navigator.clipboard.writeText(roomCode);
+      setIsCopiedCode(true);
+      setTimeout(() => setIsCopiedCode(false), 2000);
     }
   };
 
@@ -298,24 +409,31 @@ export default function RoomPage() {
               <ArrowLeft className="w-4 h-4" />
             </button>
 
+            {/* Mã Phòng & Nút chép Mã */}
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-black uppercase opacity-70">MÃ:</span>
-              <span className={`font-mono text-sm font-black px-2.5 py-0.5 rounded-xl ${
-                mode === "dark" ? "bg-violet-600/30 text-violet-300 border border-violet-500/40" : "bg-[#FDE047] text-black border-2 border-black shadow-[2px_2px_0px_0px_#000]"
-              }`}>
-                {room.code}
-              </span>
+              <button
+                onClick={handleCopyCode}
+                className={`font-mono text-sm font-black px-2.5 py-0.5 rounded-xl flex items-center gap-1 transition-all ${
+                  mode === "dark" ? "bg-violet-600/30 text-violet-300 border border-violet-500/40 hover:bg-violet-600/50" : "bg-[#FDE047] text-black border-2 border-black shadow-[2px_2px_0px_0px_#000] hover:bg-yellow-300"
+                }`}
+                title="Bấm để sao chép mã phòng"
+              >
+                <span>{room.code}</span>
+                {isCopiedCode ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3 opacity-60" />}
+              </button>
             </div>
 
+            {/* Nút chép Link Mời */}
             <button
               onClick={handleCopyLink}
               className={`flex items-center gap-1 text-xs font-black px-2.5 py-1 rounded-xl transition-all ${
                 mode === "dark" ? "bg-white/5 hover:bg-white/10 border border-white/10" : "bg-white hover:bg-slate-50 text-black border-2 border-black shadow-[2px_2px_0px_0px_#000]"
               }`}
-              title="Sao chép link mời"
+              title="Sao chép link mời bạn bè"
             >
-              {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-              <span className="hidden sm:inline">{isCopied ? "Đã chép!" : "Mời bạn"}</span>
+              {isCopiedLink ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Share2 className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">{isCopiedLink ? "Đã chép link!" : "Mời bạn bè"}</span>
             </button>
           </div>
 

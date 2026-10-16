@@ -100,6 +100,7 @@ CREATE POLICY "Public read questions" ON public.questions FOR SELECT USING (true
 CREATE POLICY "Public read rooms" ON public.rooms FOR SELECT USING (true);
 CREATE POLICY "Public insert rooms" ON public.rooms FOR INSERT WITH CHECK (true);
 CREATE POLICY "Public update rooms" ON public.rooms FOR UPDATE USING (true);
+CREATE POLICY "Public delete rooms" ON public.rooms FOR DELETE USING (true);
 
 -- =========================================================================
 -- DỮ LIỆU MẪU BAN ĐẦU (SEED DATA)
